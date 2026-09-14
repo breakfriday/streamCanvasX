@@ -1,0 +1,10 @@
+<!doctype html>
+<html><head><title>Core source and integrated bundle</title></head>
+<body><video id="video" muted></video><video id="audio" muted></video>
+<script type="module">
+const format = new URLSearchParams(location.search).get('format');
+window.mpegts = format === 'bundle'
+  ? (await import('/packages/player/dist/streamcanvasx.js')).streamcanvasCore
+  : (await import('@break_happy/streamcanvasx-core')).default;
+window.loaded = true;
+</script></body></html>

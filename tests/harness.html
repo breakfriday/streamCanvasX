@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>Workspace integration</title></head>
+<body>
+  <div id="player-root" style="width:640px;height:360px"></div>
+  <video id="video" muted></video>
+  <script type="module">
+    const format = new URLSearchParams(location.search).get('format');
+    window.api = format === 'bundle'
+      ? await import('/packages/player/dist/streamcanvasx.js')
+      : await import('@break_happy/streamcanvasx');
+    window.loaded = true;
+  </script>
+</body>
+</html>

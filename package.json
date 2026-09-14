@@ -1,0 +1,33 @@
+{
+  "name": "streamcanvasx-workspace",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.5.0",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "start": "pnpm dev",
+    "build": "vite build",
+    "build:watch": "vite build --watch --mode development",
+    "build:playground": "vite build --mode playground",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "check:workspace": "node scripts/check-workspace.mjs",
+    "check": "pnpm check:workspace && pnpm --filter @break_happy/streamcanvasx-core typecheck",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm build && playwright test",
+    "test:core": "pnpm build && playwright test packages/playercore/tests",
+    "test:integration": "pnpm build && playwright test tests/workspace.spec.mjs",
+    "pack:player": "pnpm build && pnpm --filter @break_happy/streamcanvasx pack --pack-destination dist/packages"
+  },
+  "devDependencies": {
+    "@break_happy/streamcanvasx": "workspace:*",
+    "@break_happy/streamcanvasx-core": "workspace:*",
+    "@types/node": "^22.0.0",
+    "@playwright/test": "^1.63.0",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.0",
+    "esbuild": "^0.28.2"
+  }
+}

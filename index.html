@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StreamCanvasX playground</title>
+  </head>
+  <body>
+    <main>
+      <h1>StreamCanvasX 本地调试</h1>
+      <p>输入一个可访问的 FLV 地址后再创建播放器；页面加载本身不会连接视频流。</p>
+      <label>
+        FLV URL
+        <input id="stream-url" size="72" placeholder="https://example.com/live.flv" />
+      </label>
+      <button id="create-player" type="button">创建播放器</button>
+      <button id="destroy-player" type="button">销毁播放器</button>
+      <p id="status"></p>
+      <section id="player-root" style="width:640px;height:360px;max-width:100%"></section>
+    </main>
+    <script type="module" src="/playground/main.ts"></script>
+  </body>
+</html>

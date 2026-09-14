@@ -1,0 +1,76 @@
+{
+  "name": "@break_happy/streamcanvasx",
+  "version": "0.0.1",
+  "private": false,
+  "type": "module",
+  "description": "\u7ec4\u4ef6\u529f\u80fd\u63cf\u8ff0",
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/streamcanvasx.js",
+  "module": "./dist/streamcanvasx.js",
+  "types": "./dist/streamcanvasx.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/streamcanvasx.d.ts",
+      "import": "./dist/streamcanvasx.js",
+      "default": "./dist/streamcanvasx.js"
+    }
+  },
+  "sideEffects": [
+    "dist/*"
+  ],
+  "scripts": {
+    "start": "pnpm -w dev",
+    "dev": "pnpm -w dev",
+    "build": "pnpm -w build",
+    "build:watch": "pnpm -w build:watch",
+    "preview": "pnpm -w preview",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build",
+    "eslint": "eslint --cache --ext .js,.jsx,.ts,.tsx ./",
+    "eslint:fix": "npm run eslint -- --fix",
+    "stylelint": "stylelint \"**/*.{css,scss,less}\"",
+    "lint": "npm run eslint && npm run stylelint"
+  },
+  "keywords": [
+    "ice",
+    "web",
+    "library"
+  ],
+  "dependencies": {
+    "@swc/helpers": "^0.5.17",
+    "codec-parser": "^2.5.0",
+    "hls.js": "1.3.5",
+    "icecast-metadata-player": "^1.17.12",
+    "inversify": "^6.2.2",
+    "konva": "^8.4.3",
+    "lodash": "^4.17.21",
+    "mp4-muxer": "^2.3.0",
+    "mux.js": "^6.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "reflect-metadata": "^0.1.14",
+    "regl": "^2.1.1",
+    "sm4js": "^0.0.6",
+    "twgl.js": "5.5.4",
+    "webm-muxer": "^3.2.1",
+    "webm-writer": "^1.0.0"
+  },
+  "devDependencies": {
+    "@applint/spec": "^1.2.3",
+    "@types/dom-mediacapture-transform": "^0.1.11",
+    "@types/dom-webcodecs": "^0.1.14",
+    "@types/lodash": "^4.17.16",
+    "@webgpu/types": "^0.1.40",
+    "antd": "^4.24.16",
+    "eslint": "^8.57.1",
+    "stylelint": "^15.11.0",
+    "@break_happy/streamcanvasx-core": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "license": "MIT"
+}
