@@ -1,9 +1,9 @@
 {
   "name": "@break_happy/streamcanvasx",
-  "version": "0.0.2",
+  "version": "0.0.4",
   "private": false,
   "type": "module",
-  "description": "\u7ec4\u4ef6\u529f\u80fd\u63cf\u8ff0",
+  "description": "组件功能描述",
   "files": [
     "dist"
   ],

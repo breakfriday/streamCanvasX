@@ -86,6 +86,18 @@ player.on('mediaInfo', ({ hasVideo, hasAudio }) => {
   console.log('媒体轨道', { hasVideo, hasAudio });
 });
 
+player.on('otherInfo', ({ speed, decodedFrames, droppedFrames }) => {
+  console.log('接收速度', speed, 'KB/s');
+  // 帧数统计为累计值，部分播放链路可能不提供这两个字段。
+  console.log('累计帧数', decodedFrames, '累计丢帧', droppedFrames);
+});
+
+// 事件名沿用当前拼写 performaceInfo。
+player.on('performaceInfo', ({ fps, duringtime }) => {
+  console.log('当前 FPS', Number(fps));
+  console.log('运行时长', duringtime);
+});
+
 player.createPlayer({});
 
 // 当前 FLV 错误事件在 corePlayer 上订阅。
