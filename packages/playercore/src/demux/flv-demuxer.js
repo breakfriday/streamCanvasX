@@ -27,7 +27,7 @@ import buffersAreEqual from '../utils/typedarray-equality.ts';
 import AV1OBUParser from './av1-parser.ts';
 //import PCMPlayer from './auidoPlayer.js';
 
-import  { decodeAlaw,decodeUlaw,decodeUlaw2} from './parsePcm.js'
+import {decodeAlaw, decodeUlaw} from './parsePcm.js';
 
 import logconfig from '../logconfig/index.js';
 
@@ -550,9 +550,18 @@ class FLVDemuxer {
         return;
         }
 
+        const isG711 = soundFormat === 7 || soundFormat === 8;
         let soundRate = 0;
         let soundRateIndex = (soundSpec & 12) >>> 2;
-        if (soundRateIndex >= 0 && soundRateIndex <= 4) {
+        if (isG711) {
+            // Device protocol: these two bits mean 8/16 kHz for G.711 only.
+            soundRate = [8000, 16000][soundRateIndex];
+            if (soundRate === undefined) {
+                this._onError(DemuxErrors.FORMAT_ERROR,
+                    'Flv: Unsupported G.711 sample rate idx: ' + soundRateIndex);
+                return;
+            }
+        } else if (soundRateIndex >= 0 && soundRateIndex <= 4) {
             soundRate = this._flvSoundRateTable[soundRateIndex];
         } else {
             this._onError(DemuxErrors.FORMAT_ERROR, 'Flv: Invalid audio sample rate idx: ' + soundRateIndex);
@@ -583,37 +592,22 @@ class FLVDemuxer {
             // //debugger
         }
 
-        if(soundFormat== 7||soundFormat==8||soundFormat===0){
-
-            // let pcmData =new Uint8Array(arrayBuffer, dataOffset, dataSize);
-            // pcmData=decodeAlaw(pcmData)
-            //  //debugger
-            // window.pmcPlayer.feed(pcmData)
-            //  //debugger
+        if (isG711) {
+            const channelCount = soundType === 0 ? 1 : 2;
+            // Read parameters for each packet, including changes during a stream.
+            meta.audioSampleRate = soundRate;
+            meta.channelCount = channelCount;
             this._audioInitialMetadataDispatched = true;
-            let pcmData =new Uint8Array(arrayBuffer, dataOffset+1, dataSize-1);
-            if(soundFormat===7){
-                pcmData=decodeAlaw(pcmData)
-            }
-
-            if(soundFormat===8){
-                pcmData=decodeUlaw(pcmData)
-
-            }
-           
-
-            // window.pmcPlayer.feed(pcmData)
-
-            // //debugger
+            const encodedData = new Uint8Array(arrayBuffer, dataOffset + 1, dataSize - 1);
+            const pcmData = soundFormat === 7 ? decodeAlaw(encodedData) : decodeUlaw(encodedData);
 
             if (this.onAudioBuffer) {
-                this.onAudioBuffer('audio', {data: pcmData.buffer});
+                this.onAudioBuffer('audio', {
+                    data: pcmData.buffer,
+                    info: {sampleRate: soundRate, channelCount, format: 's16le'}
+                });
             }
-
-          
-    
-           return false
-            
+            return;
         }
 
         if (soundFormat === 10) {  // AAC

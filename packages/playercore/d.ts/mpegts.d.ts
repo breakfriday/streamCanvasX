@@ -268,13 +268,24 @@ declare namespace Mpegts {
         nativeWebmVP9Playback: boolean;
     }
 
+    /** Metadata for the decoded PCM block passed to audio_segment. */
+    interface PCMInfo {
+        /** G.711 device header: rate index 0 = 8000, 1 = 16000. */
+        sampleRate: number;
+        channelCount: 1 | 2;
+        /** Signed 16-bit little-endian PCM; preserves input sample/channel order. */
+        format: 's16le';
+    }
+
     interface PlayerConstructor {
         new (mediaDataSource: MediaDataSource, config?: Config): Player;
     }
 
     interface Player {
         destroy(): void;
+        on(event: 'audio_segment', listener: (buffer: ArrayBuffer, info: PCMInfo) => void): void;
         on(event: string, listener: (...args: any[]) => void): void;
+        off(event: 'audio_segment', listener: (buffer: ArrayBuffer, info: PCMInfo) => void): void;
         off(event: string, listener: (...args: any[]) => void): void;
         attachMediaElement(mediaElement: HTMLMediaElement,audioMeidaElement?:HTMLMediaElement): void;
         detachMediaElement(): void;

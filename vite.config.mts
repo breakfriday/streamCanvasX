@@ -1,7 +1,6 @@
 import { createRequire } from 'node:module';
 import { copyFile, mkdir, rename } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import ts from 'typescript';
 import { defineConfig, type Plugin } from 'vite';
 
 const root = fileURLToPath(new URL('./', import.meta.url));
@@ -9,35 +8,6 @@ const player = new URL('./packages/player/', import.meta.url);
 const core = new URL('./packages/playercore/', import.meta.url);
 const coreRequire = createRequire(new URL('package.json', core));
 const { version: coreVersion } = coreRequire('./package.json');
-
-// Only the upper player needs legacy decorator metadata. Core uses its own
-// tsconfig through Vite's standard TS transform, including inside the worker.
-function legacyTypescript(): Plugin {
-  const source = fileURLToPath(new URL('src/', player));
-  return {
-    name: 'streamcanvasx-legacy-typescript',
-    enforce: 'pre',
-    transform(code, id) {
-      const filename = id.split('?')[0];
-      if (!filename.startsWith(source) || !/\.[jt]sx?$/.test(filename) || filename.endsWith('.d.ts')) return;
-      const result = ts.transpileModule(code, {
-        fileName: filename,
-        compilerOptions: {
-          target: ts.ScriptTarget.ES2020,
-          module: ts.ModuleKind.ESNext,
-          experimentalDecorators: true,
-          emitDecoratorMetadata: true,
-          useDefineForClassFields: false,
-          jsx: ts.JsxEmit.React,
-          allowJs: true,
-          sourceMap: true,
-          inlineSources: true,
-        },
-      });
-      return { code: result.outputText, map: result.sourceMapText };
-    },
-  };
-}
 
 // Retain a convenient root dist artifact for static URLs and existing AQ overrides.
 function mirrorPlayer(): Plugin {
@@ -62,7 +32,7 @@ export default defineConfig(({ mode }) => {
     root,
     base: './',
     publicDir: playground ? false : fileURLToPath(new URL('public/', player)),
-    plugins: [legacyTypescript(), ...(!playground ? [mirrorPlayer()] : [])],
+    plugins: playground ? [] : [mirrorPlayer()],
     resolve: {
       alias: {
         // The public player package keeps dist exports for npm consumers.
@@ -77,13 +47,13 @@ export default defineConfig(({ mode }) => {
       __VERSION__: JSON.stringify(coreVersion),
       'process.env.NODE_ENV': JSON.stringify(mode === 'development' ? 'development' : 'production'),
     },
-    worker: { format: 'iife', plugins: () => [legacyTypescript()] },
+    worker: { format: 'iife' },
     server: { host: '127.0.0.1', port: 5173, strictPort: true },
     preview: { host: '127.0.0.1', port: 4173, strictPort: true },
     build: {
       target: 'esnext',
       sourcemap: mode === 'development',
-      minify: mode === 'development' ? false : 'esbuild',
+      minify: mode === 'development' ? false : 'oxc',
       outDir: playground ? 'dist/playground' : 'packages/player/dist',
       emptyOutDir: true,
       lib: playground ? false : {
@@ -91,7 +61,7 @@ export default defineConfig(({ mode }) => {
         formats: ['es'],
         fileName: () => 'streamcanvasx.js',
       },
-      rollupOptions: {
+      rolldownOptions: {
         onwarn(warning, warn) {
           if (warning.code === 'UNRESOLVED_IMPORT') throw new Error(warning.message);
           warn(warning);

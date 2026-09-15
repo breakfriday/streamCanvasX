@@ -2,6 +2,7 @@
   "compilerOptions": {
     "emitDecoratorMetadata":true,
     "experimentalDecorators": true,
+    "useDefineForClassFields": false,
     "module": "ESNext",
     "target": "ESNext",
     "jsx": "react",
@@ -15,7 +16,6 @@
     "noImplicitThis": true,
     "noImplicitAny": true,
     "skipLibCheck": true,
-    "importHelpers": true,
   },
   "include": ["src"],
 }

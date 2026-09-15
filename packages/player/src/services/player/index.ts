@@ -288,34 +288,38 @@ class PlayerService extends Emitter {
             this.createFlvPlayer(parms);
         }
     }
-    initAudiPlayer() {
+    initAudiPlayer(info: corePlayer.PCMInfo = { sampleRate: 8000, channelCount: 1, format: 's16le' }) {
+        const muted = this._audioPlayer?.muted ?? (this.config.isMuted === true);
+        if (this._audioPlayer && this._audioPlayer.config.sampleRate !== info.sampleRate) {
+            // AudioContext's rate is fixed at creation. Recreate only audio output
+            // if the device changes rate; the core connection continues receiving.
+            clearTimeout(this.audioProcessingService.timeId);
+            this._audioPlayer.destroy();
+            this._audioPlayer = null;
+        }
         if (!this._audioPlayer) {
-            this._audioPlayer = new AudioPlayer();
-            let sampleRate = 8000;
-
-            if (this.config.url.includes('02040037604000100001')) {
-                sampleRate = 16000;
-            }
-
-            if (sampleRate === 16000) {
-                this.config.bufferSize = 1.2;
-            }
-            this._audioPlayer.init({
-                sampleRate: sampleRate, // μ-law PCM 通常是 8000 Hz
-                bufferSize: this.config.bufferSize, // 缓冲大小，可根据需要调整
-                numberOfOutputChannels: 1, // 单声道
-                isLive: true, // 是否实时播放
+            const audioPlayer = this._audioPlayer = new AudioPlayer();
+            audioPlayer.init({
+                sampleRate: info.sampleRate,
+                channelCount: info.channelCount,
+                bufferSize: this.config.bufferSize,
                 updataBufferPerSecond: this.config.updataBufferPerSecond,
                 fftSize: this.config.fftsize,
+            }).then(() => {
+                if (this._audioPlayer !== audioPlayer || !audioPlayer.hasInit) return;
+                this.config.showAudio = true;
+                audioPlayer.updatBufferData();
+                this.audioProcessingService.render();
+            }).catch(error => {
+                console.error('Failed to initialize PCM playback:', error);
             });
-            this.config.showAudio = true;
-            this._audioPlayer.updatBufferData();
-            setTimeout(() => {
-            this.audioProcessingService.render();
-            }, 1000);
-
-            return false;
+            audioPlayer.mute(muted);
         }
+        return this._audioPlayer;
+    }
+
+    handleAudioSegment(data: ArrayBuffer, info: corePlayer.PCMInfo = { sampleRate: 8000, channelCount: 1, format: 's16le' }) {
+        this.initAudiPlayer(info).feedPCMData(data, info);
     }
     createFlvPlayer(parms: { type?: string; isLive?: boolean; url?: string }) {
         try {
@@ -470,36 +474,9 @@ class PlayerService extends Emitter {
 
             //   window.pp = this.corePlayer;
 
-            this.corePlayer.on('audio_segment', (data) => {
-                this.initAudiPlayer();
-                let { buffer } = data;
-                // if (this._audioPlayer) {
-                //     let data = this._audioPlayer.convetBufferToPcmFloat32(buffer);
-                //     this._audioPlayer.feedPCMDataBeta(data);
-                // }
-
-                let audioBuffer = data;
-                if (this._audioPlayer) {
-                    const pcmDataBuffer = audioBuffer;
-
-                    // 使用 ArrayBuffer 创建新的 Int16Array 视图
-                    const pcmData = new Int16Array(pcmDataBuffer);
-
-                    // 转换 Int16Array 到 Float32Array
-                    const floatData = new Float32Array(pcmData.length);
-                    for (let i = 0; i < pcmData.length; i++) {
-                        // 将 PCM 数据从 Int16 转换为 Float32
-
-                        // floatData[i] = pcmData[i] / 32768; // PCM 数据的范围是 -32768 到 32767
-
-                        floatData[i] = Math.max(-1, Math.min(1, pcmData[i] / 32768));
-                    }
-                    this._audioPlayer.feedPCMDataBeta(floatData);
-                }
-                // let h = data;
-                // debugger;
+            this.corePlayer.on('audio_segment', (data, info) => {
+                this.handleAudioSegment(data, info);
             });
-
 
             this.corePlayer.on(corePlayer.Events.LOADING_COMPLETE, (parm) => {
                 let data = {};

@@ -256,7 +256,8 @@ let TransmuxingWorker = function (self) {
             msg: TransmuxingEvents.AUDIO_SEGMENT,
             data: {
                 type: type,
-                data:audioSegment.data
+                data: audioSegment.data,
+                info: audioSegment.info
             }
         };
 

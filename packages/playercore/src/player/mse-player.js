@@ -384,7 +384,7 @@ class MSEPlayer {
             }
            // this._msectl.appendInitSegment(is);
         });
-        onTransmuxer(TransmuxingEvents.AUDIO_SEGMENT, (type, audioBuffer) => {
+        onTransmuxer(TransmuxingEvents.AUDIO_SEGMENT, (type, audioBuffer, info) => {
 
      
 
@@ -407,7 +407,7 @@ class MSEPlayer {
           this.audioPlayer.feedPCMDataBeta(floatData) */
           
 
-           this._emitter.emit("audio_segment",audioBuffer);
+           this._emitter.emit("audio_segment", audioBuffer, info);
             
          
 

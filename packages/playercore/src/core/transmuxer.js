@@ -234,7 +234,7 @@ class Transmuxer {
             if (this._destroyed) return;
 
    
-            this._emitter.emit(TransmuxingEvents.AUDIO_SEGMENT, type, mediaSegment.data);
+            this._emitter.emit(TransmuxingEvents.AUDIO_SEGMENT, type, mediaSegment.data, mediaSegment.info);
         });
     }
    
@@ -371,10 +371,8 @@ class Transmuxer {
                 //debugger
                 this._emitter.emit(message.msg, data.type, data.data);
                 break;
-            case "audio_segment":
-                // console.log(1212121212)
-                //debugger
-                this._emitter.emit(message.msg, data.type, data.data);
+            case TransmuxingEvents.AUDIO_SEGMENT:
+                this._emitter.emit(message.msg, data.type, data.data, data.info);
                 break;
             case TransmuxingEvents.LOADING_COMPLETE:
             case TransmuxingEvents.RECOVERED_EARLY_EOF:
