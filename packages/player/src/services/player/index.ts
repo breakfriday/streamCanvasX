@@ -85,6 +85,8 @@ class PlayerService extends Emitter {
     player2: any;
     canvasToVideoSerivce: CanvasToVideoSerivce;
     mediaInfo: {
+        hasVideo?: boolean;
+        hasAudio?: boolean;
         audioChannelCount?: number;
         audioCodec?: string;
         audioSampleRate?: number;
@@ -103,7 +105,16 @@ class PlayerService extends Emitter {
     lowSpeedTimer: NodeJS.Timeout;
     error_message?: string;
     _audioPlayer: AudioPlayer;
+    audioPlaybackMode: 'audio-element' | 'audioContext' = 'audio-element';
+    private audioCheckTimer?: ReturnType<typeof setTimeout>;
+    private audioCheckElement?: HTMLVideoElement;
+    private audioErrorHandler?: EventListener;
+    private lastPCMSubmittedAt?: number;
     wasmModel: boolean;
+
+    get hasVideoTrack(): boolean {
+        return this.mediaInfo?.hasVideo ?? (this.config.hasVideo !== false);
+    }
     constructor(
 
         @inject(TYPES.IHttpFlvStreamLoader) httpFlvStreamService: HttpFlvStreamService,
@@ -289,6 +300,9 @@ class PlayerService extends Emitter {
         }
     }
     initAudiPlayer(info: corePlayer.PCMInfo = { sampleRate: 8000, channelCount: 1, format: 's16le' }) {
+        // PCM selects the output path before asynchronous Worklet initialization.
+        this.audioPlaybackMode = 'audioContext';
+        this.stopAudioEvent();
         const muted = this._audioPlayer?.muted ?? (this.config.isMuted === true);
         if (this._audioPlayer && this._audioPlayer.config.sampleRate !== info.sampleRate) {
             // AudioContext's rate is fixed at creation. Recreate only audio output
@@ -298,6 +312,7 @@ class PlayerService extends Emitter {
             this._audioPlayer = null;
         }
         if (!this._audioPlayer) {
+            this.lastPCMSubmittedAt = undefined;
             const audioPlayer = this._audioPlayer = new AudioPlayer();
             audioPlayer.init({
                 sampleRate: info.sampleRate,
@@ -307,9 +322,9 @@ class PlayerService extends Emitter {
                 fftSize: this.config.fftsize,
             }).then(() => {
                 if (this._audioPlayer !== audioPlayer || !audioPlayer.hasInit) return;
-                this.config.showAudio = true;
+                this.config.showAudio = !this.hasVideoTrack;
                 audioPlayer.updatBufferData();
-                this.audioProcessingService.render();
+                if (this.config.showAudio) this.audioProcessingService.render();
             }).catch(error => {
                 console.error('Failed to initialize PCM playback:', error);
             });
@@ -319,7 +334,9 @@ class PlayerService extends Emitter {
     }
 
     handleAudioSegment(data: ArrayBuffer, info: corePlayer.PCMInfo = { sampleRate: 8000, channelCount: 1, format: 's16le' }) {
-        this.initAudiPlayer(info).feedPCMData(data, info);
+        if (this.initAudiPlayer(info).feedPCMData(data, info)) {
+            this.lastPCMSubmittedAt = performance.now();
+        }
     }
     createFlvPlayer(parms: { type?: string; isLive?: boolean; url?: string }) {
         try {
@@ -387,6 +404,7 @@ class PlayerService extends Emitter {
 
         if (videoEl) {
             if (showAudio === true) {
+                this.audioEl = videoEl;
                 this.audioProcessingService.init(this, { media_el: videoEl });
 
                 // 此處默認靜音
@@ -520,6 +538,13 @@ class PlayerService extends Emitter {
 
                 this.mediaInfo = parm;
 
+                // Stop video checks independently of whether PCM already enabled the waveform.
+                if (parm.hasVideo === false) {
+                    this.canvasVideoService.mediaView.stopHeartChceck();
+                    this.canvasVideoService.mediaView.cancelVideoFrameCallBack();
+                    this.meidiaEl = null;
+                }
+
 
                 let { hasVideo } = parm;
                 let { hasAudio } = parm;
@@ -535,14 +560,13 @@ class PlayerService extends Emitter {
 
                 this.emit('mediaInfo', { hasVideo, hasAudio });
 
-                if (hasVideo === false && this.config.showAudio != true) {
+                if (hasVideo === false) {
                     this.config.showAudio = true;
-                    this.meidiaEl = null;
-
-                    // debugger;
-                    this.audioProcessingService.updateBufferData();
+                    if (this.audioPlaybackMode === 'audio-element') {
+                        this.audioProcessingService.updateBufferData();
+                        this.audioEvent();
+                    }
                     this.audioProcessingService.render();
-                    this.audioEvent();
                 }
 
                 if (hasVideo === true) {
@@ -749,7 +773,7 @@ class PlayerService extends Emitter {
         }
 
         function checkVideoState() {
-            if ($this.meidiaEl === null) {
+            if (!$this.hasVideoTrack || $this.meidiaEl !== video) {
                 return false;
             }
             // console.log('readystate', video.readyState);
@@ -781,7 +805,9 @@ class PlayerService extends Emitter {
 
         if (this.meidiaEl) {
             this.meidiaEl.addEventListener('error', (e) => {
+                if (!this.hasVideoTrack || this.meidiaEl !== video) return;
                 const { error } = (e.target as HTMLVideoElement);
+                if (!error) return;
                 switch (error.code) {
                     case 1:
                         this.addReloadTask({ arr_msg: [`中断下载 ${url}`] });
@@ -803,67 +829,59 @@ class PlayerService extends Emitter {
         }
     }
 
+    stopAudioEvent() {
+        clearTimeout(this.audioCheckTimer);
+        this.audioCheckTimer = undefined;
+        if (this.audioCheckElement && this.audioErrorHandler) {
+            this.audioCheckElement.removeEventListener('error', this.audioErrorHandler);
+        }
+        this.audioCheckElement = undefined;
+        this.audioErrorHandler = undefined;
+    }
+
     audioEvent(videoEl?: HTMLVideoElement) {
-        let video = this.audioEl;
-        let lastTimeReadyStateBelow3: number | null = null; // 最后一次 readyState 小于3的时间
-        const timeoutDuration = 1000; // 检查间隔（毫秒）
-        const threshold = 15000; // 阈值（毫秒）
-        let $this = this;
-        let { url = '' } = this.config;
+        this.stopAudioEvent();
+        if (this.audioPlaybackMode !== 'audio-element') return;
+        const video = videoEl ?? this.audioEl ?? this.meidiaEl;
+        if (!video) return;
+        this.audioCheckElement = video;
+        let lastTimeReadyStateBelow3: number | null = null;
+        const timeoutDuration = 1000;
+        const threshold = 15000;
+        const { url = '' } = this.config;
+        const isActive = () =>
+            this.audioPlaybackMode === 'audio-element' && this.audioCheckElement === video;
 
-        function checkVideoState() {
-            if ($this.audioEl === null) {
-                return false;
-            }
-            // console.log('readystate', video.readyState);
+        const checkAudioState = () => {
+            if (!isActive()) return;
             if (video.readyState < 3) {
-                if (lastTimeReadyStateBelow3 === null) {
-                    lastTimeReadyStateBelow3 = Date.now(); // 开始计时
-                }
-
-                const duration: number = Date.now() - lastTimeReadyStateBelow3;
-                if (duration >= threshold) {
-                    //    $this.canvasVideoService.drawLoading();
-                    //    console.log('----readyState reset-----------');
-                    //    console.log(`reset:${video.readyState}`);
-                    //    console.log('----readyState reset-----------');
-                    //    $this.reload2(); // 触发回调函数
-                    $this.addReloadTask({ arr_msg: [`readyState 异常 :${video.readyState} ${url}`] });
-                    setTimeout(checkVideoState, timeoutDuration); // 继续检查
-                } else {
-                    setTimeout(checkVideoState, timeoutDuration); // 继续检查
+                const now = Date.now();
+                if (lastTimeReadyStateBelow3 === null) lastTimeReadyStateBelow3 = now;
+                if (now - lastTimeReadyStateBelow3 >= threshold) {
+                    this.addReloadTask({ arr_msg: [`readyState 异常 :${video.readyState} ${url}`] });
+                    // Give recovery time instead of submitting another task every second.
+                    lastTimeReadyStateBelow3 = now;
                 }
             } else {
-                lastTimeReadyStateBelow3 = null; // 重置计时
-                setTimeout(checkVideoState, timeoutDuration); // 重新开始计时
+                lastTimeReadyStateBelow3 = null;
             }
-        }
+            if (isActive()) this.audioCheckTimer = setTimeout(checkAudioState, timeoutDuration);
+        };
 
-        setTimeout(checkVideoState, 5000);
-
-
-        if (this.audioEl) {
-            this.audioEl.addEventListener('error', (e) => {
-                const { error } = (e.target as HTMLVideoElement);
-                switch (error.code) {
-                    case 1:
-                        this.addReloadTask({ arr_msg: [`中断下载 ${url}`] });
-                        break;
-                    case 2:
-                        this.addReloadTask({ arr_msg: [`网络异常中断 ${url}`] });
-                        break;
-                    case 3:
-                        this.addReloadTask({ arr_msg: [`解码失败 ${url}`] });
-                        break;
-                    case 4:
-                        //  console.log('视频格式不支持。');
-                        break;
-                    default:
-                        this.addReloadTask({ arr_msg: [`发生了其他错误 ${url}`] });
-                        break;
-                }
+        this.audioCheckTimer = setTimeout(checkAudioState, 5000);
+        this.audioErrorHandler = () => {
+            if (!isActive() || !video.error) return;
+            const messages: Record<number, string> = {
+                1: '中断下载',
+                2: '网络异常中断',
+                3: '解码失败',
+            };
+            if (video.error.code === 4) return;
+            this.addReloadTask({
+                arr_msg: [`${messages[video.error.code] ?? '发生了其他错误'} ${url}`],
             });
-        }
+        };
+        video.addEventListener('error', this.audioErrorHandler);
     }
 
 
@@ -902,6 +920,8 @@ class PlayerService extends Emitter {
     }
 
     destroy() {
+        this.stopAudioEvent();
+        this.lastPCMSubmittedAt = undefined;
         console.log('----destroy-----1-----');
 
         if (this.player2) {
@@ -996,25 +1016,21 @@ class PlayerService extends Emitter {
         }
     }
 
-    checkPlaying() {
-        let video = this.meidiaEl;
-        if (this.config.showAudio === true) {
-            video = this.audioEl;
-        } else {
-            video = this.meidiaEl;
+    checkPlaying(): boolean {
+        const mediaIsPlaying = (media?: HTMLMediaElement) =>
+            !!media && media.readyState >= 3 && !media.paused && !media.ended;
+        if (this.audioPlaybackMode === 'audioContext') {
+            // Running alone does not prove PCM is being supplied to the Worklet.
+            const audioIsPlaying = !!this._audioPlayer?.hasInit &&
+                this._audioPlayer.audioContext?.state === 'running' &&
+                this.lastPCMSubmittedAt !== undefined &&
+                performance.now() - this.lastPCMSubmittedAt < 15000;
+            return audioIsPlaying && (!this.hasVideoTrack || mediaIsPlaying(this.meidiaEl));
         }
-        if (video) {
-            if (video.readyState < 3 || video.paused == true || video.ended == true) {
-                console.log(`readyState${video.readyState} pause: ${video.paused} end:${video.ended}`);
-                console.log('checkplaying false');
-                return false;
-            } else {
-                console.log('checkplaying success');
-                return true;
-            }
-        } else {
-
-        }
+        const media = this.hasVideoTrack && !this.config.showAudio
+            ? this.meidiaEl
+            : this.audioEl ?? this.meidiaEl;
+        return mediaIsPlaying(media);
     }
 
     reload2() {
@@ -1043,6 +1059,7 @@ class PlayerService extends Emitter {
             this.setError();
             return false;
         } else {
+            this.lastPCMSubmittedAt = undefined;
             this.corePlayer.reload();
         }
     }
@@ -1086,6 +1103,7 @@ class PlayerService extends Emitter {
     }
 
     setError() {
+        this.stopAudioEvent();
         console.log('----setError-------');
         // this.canvasVideoService.loading = false;
 

@@ -127,6 +127,7 @@ class MediaView {
 
       startVideoFrameCallBack() {
         this.cancelVideoFrameCallBack();
+        if (!this.playerService.hasVideoTrack) return;
 
         let frameCount = 0;
         let lastFrameTime = performance.now();
@@ -152,6 +153,7 @@ class MediaView {
       };
 
         const frameCallback = (now) => {
+          if (!this.playerService.hasVideoTrack) return;
           frameCount++;
           if (this.playerService.error_connect_times > this.playerService.maxErrorTimes) {
             return false;
@@ -719,8 +721,16 @@ class MediaView {
      }
 
     startHearChceck() {
+      if (!this.playerService.hasVideoTrack) {
+        this.stopHeartChceck();
+        return;
+      }
       if (!this.timer) {
         this.timer = setInterval(() => {
+           if (!this.playerService.hasVideoTrack) {
+             this.stopHeartChceck();
+             return;
+           }
            if (this.lastCount >= this.nowFrameCount) {
             this.playerService.addReloadTask({ arr_msg: ['---fps 調用鏈檢查異常 ----'] });
            } else {
