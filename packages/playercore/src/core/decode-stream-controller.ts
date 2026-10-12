@@ -137,7 +137,7 @@ class DecodeStreamController implements Mpegts.DecodeStream {
                     session.pendingBytes = data.byteLength;
                     return 0;
                 }
-                this._setupDemuxer(session, probe);
+                session.demuxer = this._createDemuxer(session, probe);
             }
             const consumed = session.demuxer.parseChunks(data, byteStart);
             session.pendingBytes = data.byteLength - consumed;
@@ -150,8 +150,8 @@ class DecodeStreamController implements Mpegts.DecodeStream {
         }
     }
 
-    private _setupDemuxer(session: StreamSession, probe: FLVProbe): void {
-        const demuxer = session.demuxer = new FLVDemuxer(probe, this._config);
+    private _createDemuxer(session: StreamSession, probe: FLVProbe): FLVDemuxer {
+        const demuxer = new FLVDemuxer(probe, this._config);
         const source = this._source;
         if (Number.isFinite(source.duration)) demuxer.overridedDuration = source.duration;
         if (typeof source.hasAudio === 'boolean') demuxer.overridedHasAudio = source.hasAudio;
@@ -165,6 +165,7 @@ class DecodeStreamController implements Mpegts.DecodeStream {
         demuxer.onAudioBuffer = (_type: string, payload: PCMData) => this._emit(session, Events.PCM_DATA, {
             data: payload.data.slice(0), info: {...payload.info}
         });
+        return demuxer;
     }
 
     private _complete(session: StreamSession): void {
