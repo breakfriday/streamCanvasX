@@ -13,9 +13,23 @@
         FLV URL
         <input id="stream-url" size="72" placeholder="https://example.com/live.flv" />
       </label>
+      <label>
+        本地样本
+        <select id="sample-stream">
+          <option value="">自定义地址</option>
+          <option value="av">H.264 + AAC</option>
+          <option value="hevc">H.265（仅视频）</option>
+          <option value="pcm">H.264 + G.711 / PCM</option>
+        </select>
+      </label>
+      <p>
+        <label><input id="webcodec" type="checkbox" /> 编码流调试（webcodec）</label>
+        <span>默认使用原播放器；勾选后仅打印配置、编码样本和 PCM，不解码播放。切换模式后点击创建生效。</span>
+      </p>
       <button id="create-player" type="button">创建播放器</button>
       <button id="destroy-player" type="button">销毁播放器</button>
       <p id="status"></p>
+      <p id="sample-counts" hidden></p>
       <section id="player-root" style="width:640px;height:360px;max-width:100%"></section>
     </main>
     <script type="module" src="/playground/main.ts"></script>

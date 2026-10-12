@@ -14,9 +14,10 @@
     "build:playground": "vite build --mode playground",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "check:workspace": "node scripts/check-workspace.mjs",
-    "check": "pnpm check:workspace && pnpm --filter @break_happy/streamcanvasx-core typecheck",
+    "check": "pnpm check:workspace && pnpm --filter @break_happy/streamcanvasx-core typecheck && pnpm check:playground",
+    "check:playground": "tsc -p playground/tsconfig.json",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm build && playwright test",
+    "test": "pnpm build && pnpm build:playground && playwright test",
     "test:core": "pnpm build && playwright test packages/playercore/tests",
     "test:integration": "pnpm build && playwright test tests/workspace.spec.mjs",
     "pack:player": "pnpm build && pnpm --filter @break_happy/streamcanvasx pack --pack-destination dist/packages"
