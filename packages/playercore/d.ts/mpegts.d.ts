@@ -193,6 +193,70 @@ declare namespace Mpegts {
         new(): SeekHandler;
     }
 
+    /** Only createStream reads this startup flag; createPlayer keeps its legacy API. */
+    interface StreamConfig extends Config {
+        webcodec?: boolean;
+    }
+
+    interface EncodedVideoConfig {
+        type: 'video';
+        codec: string;
+        configId: number;
+        /** Owned copy of avcC or hvcC, including the NALU length-size field. */
+        description: Uint8Array;
+        codedWidth: number;
+        codedHeight: number;
+        displayWidth: number;
+        displayHeight: number;
+    }
+
+    interface EncodedAudioConfig {
+        type: 'audio';
+        codec: string;
+        configId: number;
+        /** AAC config paired with codec (may include existing demuxer workarounds). */
+        description?: Uint8Array;
+        sampleRate: number;
+        numberOfChannels: number;
+    }
+
+    interface EncodedSample {
+        type: 'video' | 'audio';
+        codec: string;
+        configId: number;
+        /** Owned copy. Video contains the full access unit with NALU length prefixes. */
+        data: Uint8Array;
+        /** Original stream timestamps in microseconds, without A/V alignment. */
+        dts: number;
+        pts: number;
+        timebase: 1000000;
+        isKeyframe: boolean;
+    }
+
+    interface DecodeStreamEventMap {
+        track_config: EncodedVideoConfig | EncodedAudioConfig;
+        encoded_sample: EncodedSample;
+        pcm_data: {data: ArrayBuffer; info: PCMInfo};
+        media_info: MSEPlayerMediaInfo;
+        metadata_arrived: object;
+        scriptdata_arrived: object;
+        statistics_info: {url: string; hasRedirect: boolean; redirectedURL?: string; speed: number; loaderType: string};
+        discontinuity: {reason: string};
+        recovered_early_eof: void;
+        loading_complete: void;
+        error: {type: 'network' | 'demux'; detail: string; code?: number; msg: string};
+    }
+
+    /** Data output only: does not implement media-element playback or seek. */
+    interface DecodeStream {
+        readonly state: 'idle' | 'running' | 'stopped' | 'complete' | 'error' | 'destroyed';
+        start(): void;
+        stop(): void;
+        destroy(): void;
+        on<K extends keyof DecodeStreamEventMap>(event: K, listener: (data: DecodeStreamEventMap[K]) => void): this;
+        off<K extends keyof DecodeStreamEventMap>(event: K, listener: (data: DecodeStreamEventMap[K]) => void): this;
+    }
+
     interface SeekHandler {
         getConfig(sourceURL: string, range: Range): SeekConfig;
         removeURLParameters(url: string): string;
@@ -423,6 +487,8 @@ declare namespace Mpegts {
 
 declare var Mpegts: {
     createPlayer(mediaDataSource: Mpegts.MediaDataSource, config?: Mpegts.Config): Mpegts.Player;
+    createStream: typeof createStream;
+    readonly DecodeStreamEvents: typeof DecodeStreamEvents;
     isSupported(): boolean;
     getFeatureList(): Mpegts.FeatureList;
 
@@ -458,3 +524,22 @@ declare var Mpegts: {
 };
 
 export default Mpegts;
+
+/** Only literal true selects the main-thread FLV sample-output path. */
+export function createStream(source: Mpegts.MediaDataSource, config: Mpegts.StreamConfig & {webcodec: true}): Mpegts.DecodeStream;
+export function createStream(source: Mpegts.MediaDataSource, config?: Mpegts.Config & {webcodec?: false}): Mpegts.Player;
+export function createStream(source: Mpegts.MediaDataSource, config: Mpegts.StreamConfig): Mpegts.Player | Mpegts.DecodeStream;
+
+export const DecodeStreamEvents: Readonly<{
+    TRACK_CONFIG: 'track_config';
+    ENCODED_SAMPLE: 'encoded_sample';
+    PCM_DATA: 'pcm_data';
+    MEDIA_INFO: 'media_info';
+    METADATA_ARRIVED: 'metadata_arrived';
+    SCRIPTDATA_ARRIVED: 'scriptdata_arrived';
+    STATISTICS_INFO: 'statistics_info';
+    DISCONTINUITY: 'discontinuity';
+    RECOVERED_EARLY_EOF: 'recovered_early_eof';
+    LOADING_COMPLETE: 'loading_complete';
+    ERROR: 'error';
+}>;
