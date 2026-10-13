@@ -181,3 +181,72 @@ test('typed emitter preserves context, once cancellation and listener cleanup', 
     clearReturnsUndefined: true, failures: []
   });
 });
+
+test('live dual-MSE plays FLV without onMetaData and renders decoded dimensions', async ({page}) => {
+  const {readFile} = await import('node:fs/promises');
+  const original = await readFile('packages/playercore/tests/fixtures/av.flv');
+  const parts = [original.subarray(0, 13)];
+  for (let offset = 13; offset + 11 <= original.length;) {
+    const size = original.readUIntBE(offset + 1, 3);
+    const end = offset + 11 + size + 4;
+    if (original[offset] !== 18) parts.push(original.subarray(offset, end));
+    offset = end;
+  }
+  await page.route('**/no-metadata.flv', route => route.fulfill({
+    body: Buffer.concat(parts), contentType: 'video/x-flv',
+  }));
+  await page.evaluate(() => {
+    window.infos = [];
+    window.upper = api.createPlayerServiceInstance({
+      url: new URL('/no-metadata.flv', location.href).href,
+      contentEl: document.querySelector('#player-root'),
+      streamType: 'flv', isLive: true, hasAudio: true, hasVideo: true,
+    });
+    upper.createPlayer({});
+    upper.corePlayer.on(api.streamcanvasCore.Events.MEDIA_INFO, info => infos.push(info));
+    upper.corePlayer.on(api.streamcanvasCore.Events.ERROR, (...args) => failures.push(args));
+  });
+  await page.waitForFunction(() => failures.length || infos.length);
+  expect(await page.evaluate(() => failures)).toEqual([]);
+  await page.waitForFunction(() => upper.canvasVideoService.mediaView.nowFrameCount > 2, null, {timeout: 5000});
+  expect(await page.evaluate(() => ({
+    metadata: upper.mediaInfo.metadata, width: upper.mediaInfo.width, height: upper.mediaInfo.height,
+    videoWidth: upper.meidiaEl.videoWidth, mse: upper.corePlayer instanceof api.streamcanvasCore.MSEPlayer,
+    audioBuffered: upper.audioEl.buffered.length > 0,
+  }))).toMatchObject({metadata: null, width: 160, height: 90, videoWidth: 160, mse: true, audioBuffered: true});
+  await page.evaluate(() => upper.destroy());
+  expect(await page.evaluate(() => failures)).toEqual([]);
+});
+
+test('optional supplied live stream plays through the legacy dual-MSE path', async ({page}) => {
+  test.skip(!process.env.STREAMCANVASX_LIVE_URL, 'Requires the supplied live stream');
+  await page.evaluate(url => {
+    window.upper = api.createPlayerServiceInstance({url,
+      contentEl: document.querySelector('#player-root'), streamType: 'flv', isLive: true,
+      hasAudio: true, hasVideo: true,
+    });
+    upper.createPlayer({});
+    upper.corePlayer.on(api.streamcanvasCore.Events.ERROR, (...args) => failures.push(args));
+  }, process.env.STREAMCANVASX_LIVE_URL);
+  let lastState;
+  await expect.poll(async () => lastState = await page.evaluate(() => ({
+    rendered: upper.canvasVideoService.mediaView.nowFrameCount ?? 0,
+    failures,
+    info: upper.mediaInfo,
+    video: upper.meidiaEl && {paused: upper.meidiaEl.paused, ready: upper.meidiaEl.readyState,
+      time: upper.meidiaEl.currentTime, width: upper.meidiaEl.videoWidth,
+      buffered: Array.from({length: upper.meidiaEl.buffered.length}, (_, i) =>
+        [upper.meidiaEl.buffered.start(i), upper.meidiaEl.buffered.end(i)])},
+    audio: upper.audioEl && {paused: upper.audioEl.paused, ready: upper.audioEl.readyState,
+      time: upper.audioEl.currentTime},
+  })), {timeout: 10000}).toMatchObject({rendered: expect.any(Number),
+    failures: [], video: {paused: false, width: expect.any(Number), ready: 4}}).catch(error => {
+      console.log('MSE live diagnostic', JSON.stringify(lastState)); throw error;
+    });
+  await page.waitForFunction(() => upper.canvasVideoService.mediaView.nowFrameCount > 10, null, {timeout: 5000});
+  expect(await page.evaluate(() => upper.corePlayer instanceof api.streamcanvasCore.MSEPlayer)).toBe(true);
+  expect(await page.evaluate(() => upper.meidiaEl.videoWidth)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => upper.audioEl.buffered.length)).toBeGreaterThan(0);
+  await page.evaluate(() => upper.destroy());
+  expect(await page.evaluate(() => failures)).toEqual([]);
+});

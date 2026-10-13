@@ -40,6 +40,8 @@ test.beforeEach(async ({page}, testInfo) => {
 
 async function collect(page, bytes, {fragmented = false, config = {}} = {}) {
     return page.evaluate(async ({bytes, fragmented, config}) => {
+        // Test the internal synchronous controller separately from the public Worker transport.
+        const {default: DecodeStreamController} = await import('/packages/playercore/src/core/decode-stream-controller.ts');
         // A controlled loader exercises the real IOController stash/reassembly.
         class FixtureLoader extends mpegts.BaseLoader {
             constructor() { super('fixture'); this._needStash = false; }
@@ -65,7 +67,7 @@ async function collect(page, bytes, {fragmented = false, config = {}} = {}) {
         window.VideoDecoder = class { constructor() { throw new Error('Unexpected decoder'); } };
         window.Worker = class { constructor() { throw new Error('Unexpected Worker'); } };
         const source = {type: 'flv', url: '/fixture.flv', isLive: true};
-        const stream = mpegts.createStream(source, {
+        const stream = new DecodeStreamController(source, {
             webcodec: true, enableStashBuffer: false, customLoader: FixtureLoader, ...config
         });
         const configs = [], samples = [], pcm = [], errors = [], order = [];
@@ -221,6 +223,7 @@ test('bad format and truncated FLV stop with an error', async ({page}) => {
 
 test('stop/restart inside a sample callback suppresses the old session and releases IO', async ({page}) => {
     const result = await page.evaluate(async bytes => {
+        const {default: DecodeStreamController} = await import('/packages/playercore/src/core/decode-stream-controller.ts');
         const loaders = [];
         class ManualLoader extends mpegts.BaseLoader {
             constructor() { super('manual'); this._needStash = false; loaders.push(this); }
@@ -228,7 +231,7 @@ test('stop/restart inside a sample callback suppresses the old session and relea
             abort() { this._status = mpegts.LoaderStatus.kComplete; }
             destroy() { this.disposed = true; super.destroy(); }
         }
-        const stream = mpegts.createStream({type: 'flv', url: '/manual.flv', isLive: true}, {
+        const stream = new DecodeStreamController({type: 'flv', url: '/manual.flv', isLive: true}, {
             webcodec: true, enableStashBuffer: false, customLoader: ManualLoader
         });
         const received = [], errors = [];
@@ -319,7 +322,7 @@ test('unsupported new-path options fail before loading; createPlayer remains leg
         for (const [input, config] of [
             [{...source, type: 'mpegts'}, {webcodec: true}],
             [{...source, segments: []}, {webcodec: true}],
-            [source, {webcodec: true, enableWorker: true}]
+            [source, {webcodec: true, customLoader: class {}}]
         ]) {
             try { mpegts.createStream(input, config); failures.push(false); }
             catch (error) { failures.push(error instanceof TypeError); }

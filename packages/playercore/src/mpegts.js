@@ -25,8 +25,9 @@ import PlayerEvents from './player/player-events.js';
 import {ErrorTypes, ErrorDetails} from './player/player-errors.js';
 import LoggingControl from './utils/logging-control.js';
 import {InvalidArgumentException} from './utils/exception.js';
-import DecodeStreamController from './core/decode-stream-controller';
+import WebCodecsWorkerClient from './worker/webcodecs-worker-client';
 import DecodeStreamEvents from './core/decode-stream-events';
+import DecodePipelineEvents from './core/decode-pipeline-events';
 
 // here are all the interfaces
 
@@ -60,11 +61,14 @@ function createPlayer(mediaDataSource, optionalConfig) {
 // Opt-in data-stream entry. The existing createPlayer factory is unchanged.
 function createStream(mediaDataSource, optionalConfig) {
     if (optionalConfig?.webcodec === true) {
-        return new DecodeStreamController(mediaDataSource, optionalConfig);
+        return new WebCodecsWorkerClient(mediaDataSource, optionalConfig, 'samples');
     }
     return createPlayer(mediaDataSource, optionalConfig);
 }
 
+function createDecodePipeline(mediaDataSource, config) {
+    return new WebCodecsWorkerClient(mediaDataSource, config, 'video');
+}
 // feature detection
 function isSupported() {
     return Features.supportMSEH264Playback();
@@ -81,6 +85,8 @@ let mpegts = {};
 mpegts.createPlayer = createPlayer;
 mpegts.createStream = createStream;
 mpegts.DecodeStreamEvents = DecodeStreamEvents;
+mpegts.createDecodePipeline = createDecodePipeline;
+mpegts.DecodePipelineEvents = DecodePipelineEvents;
 mpegts.isSupported = isSupported;
 mpegts.getFeatureList = getFeatureList;
 
@@ -106,4 +112,4 @@ Object.defineProperty(mpegts, 'version', {
 window.playCoreVersion = __VERSION__;
 
 export default mpegts;
-export {createStream, DecodeStreamEvents};
+export {createStream, DecodeStreamEvents, createDecodePipeline, DecodePipelineEvents};

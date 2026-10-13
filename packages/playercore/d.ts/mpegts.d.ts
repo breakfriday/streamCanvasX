@@ -193,9 +193,62 @@ declare namespace Mpegts {
         new(): SeekHandler;
     }
 
-    /** Only createStream reads this startup flag; createPlayer keeps its legacy API. */
+    /** New-path startup flag; createPlayer keeps its legacy API. enableWorker is ignored when true. */
     interface StreamConfig extends Config {
         webcodec?: boolean;
+    }
+
+    interface DecodePipelineConfig extends StreamConfig {
+        /** Debug copies of encoded samples. Default false; video decoding is always enabled. */
+        emitEncodedSamples?: boolean;
+        /** Enable when a retained-frame renderer reports presentation state. Default false. */
+        presentationFeedback?: boolean;
+    }
+
+    interface VideoPresentationState {
+        state: 'buffering' | 'playing' | 'rebuffering' | 'ended';
+        queuedFrames: number;
+        bufferedAheadMs: number;
+        presentedPTS: number | null;
+        /** Live-only deadline for decoded output; never permission to drop compressed references. */
+        discardBeforePTS?: number | null;
+    }
+
+    interface VideoBufferStatistics {
+        encodedFrames: number;
+        encodedBytes: number;
+        encodedBufferedMs: number;
+        decodeQueueSize: number;
+        pendingDecodeFrames: number;
+        retainedVideoFrames: number;
+        transportDroppedFrames: number;
+        decodeDiscardedFrames: number;
+        /** Compressed samples skipped during live recovery, never submitted for decode. */
+        encodedSkippedFrames: number;
+        /** Decoder restarts for live catch-up, including entering keyframe wait. */
+        keyframeJumps: number;
+        waitingForKeyframe: boolean;
+        liveEdgePTS: number | null;
+    }
+
+    interface DecodePipelineEventMap extends DecodeStreamEventMap {
+        /** Borrowed during the synchronous callback. Clone to retain; client closes after dispatch. */
+        video_frame: VideoFrame;
+        /** Video decoder flushed and transferred frames delivered. Does not imply audio playback. */
+        decode_complete: void;
+        video_buffer_stats: VideoBufferStatistics;
+        /** Discard old presentation frames and start a new video clock. */
+        video_reset: {reason: string};
+        /** Latest received video PTS, coalesced per input batch. Only emitted for isLive sources. */
+        video_live_edge: {pts: number};
+    }
+
+    /** Worker video decoder. Audio decoding/playback is not implemented yet. */
+    interface DecodePipeline extends DecodeStream {
+        /** Snapshot after accepting/presenting/dropping frames; requires presentationFeedback. */
+        updatePresentationState(state: VideoPresentationState): void;
+        on<K extends keyof DecodePipelineEventMap>(event: K, listener: (data: DecodePipelineEventMap[K]) => void): this;
+        off<K extends keyof DecodePipelineEventMap>(event: K, listener: (data: DecodePipelineEventMap[K]) => void): this;
     }
 
     interface EncodedVideoConfig {
@@ -244,7 +297,7 @@ declare namespace Mpegts {
         discontinuity: {reason: string};
         recovered_early_eof: void;
         loading_complete: void;
-        error: {type: 'network' | 'demux'; detail: string; code?: number; msg: string};
+        error: {type: 'network' | 'demux' | 'worker' | 'decode'; detail: string; code?: number; msg: string};
     }
 
     /** Data output only: does not implement media-element playback or seek. */
@@ -488,7 +541,9 @@ declare namespace Mpegts {
 declare var Mpegts: {
     createPlayer(mediaDataSource: Mpegts.MediaDataSource, config?: Mpegts.Config): Mpegts.Player;
     createStream: typeof createStream;
+    createDecodePipeline: typeof createDecodePipeline;
     readonly DecodeStreamEvents: typeof DecodeStreamEvents;
+    readonly DecodePipelineEvents: typeof DecodePipelineEvents;
     isSupported(): boolean;
     getFeatureList(): Mpegts.FeatureList;
 
@@ -525,10 +580,20 @@ declare var Mpegts: {
 
 export default Mpegts;
 
-/** Only literal true selects the main-thread FLV sample-output path. */
+/** Only literal true selects Worker FLV sample output; enableWorker does not override it. */
 export function createStream(source: Mpegts.MediaDataSource, config: Mpegts.StreamConfig & {webcodec: true}): Mpegts.DecodeStream;
 export function createStream(source: Mpegts.MediaDataSource, config?: Mpegts.Config & {webcodec?: false}): Mpegts.Player;
 export function createStream(source: Mpegts.MediaDataSource, config: Mpegts.StreamConfig): Mpegts.Player | Mpegts.DecodeStream;
+
+export function createDecodePipeline(source: Mpegts.MediaDataSource, config: Mpegts.DecodePipelineConfig & {webcodec: true}): Mpegts.DecodePipeline;
+
+export const DecodePipelineEvents: typeof DecodeStreamEvents & Readonly<{
+    VIDEO_FRAME: 'video_frame';
+    DECODE_COMPLETE: 'decode_complete';
+    VIDEO_BUFFER_STATS: 'video_buffer_stats';
+    VIDEO_RESET: 'video_reset';
+    VIDEO_LIVE_EDGE: 'video_live_edge';
+}>;
 
 export const DecodeStreamEvents: Readonly<{
     TRACK_CONFIG: 'track_config';

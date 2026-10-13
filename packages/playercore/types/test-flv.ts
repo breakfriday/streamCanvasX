@@ -1,5 +1,5 @@
 import mpegts from '../';
-import {createStream, DecodeStreamEvents} from '../';
+import {createStream, DecodeStreamEvents, createDecodePipeline, DecodePipelineEvents} from '../';
 
 type LoaderStatusAlias = mpegts.LoaderStatus;
 type LoaderErrorsAlias = mpegts.LoaderErrors;
@@ -44,4 +44,29 @@ function verifyStreamTypes(webcodec: boolean) {
     const selected: mpegts.Player | mpegts.DecodeStream = createStream(source, {webcodec});
     // @ts-expect-error Encoded stream is not an HTMLMediaElement player.
     stream.attachMediaElement(document.createElement('video'));
+}
+
+function verifyDecodePipelineTypes() {
+    const pipeline: mpegts.DecodePipeline = createDecodePipeline(
+        {type: 'flv', url: '/live.flv'}, {webcodec: true, enableWorker: false, emitEncodedSamples: true}
+    );
+    pipeline.on(DecodePipelineEvents.VIDEO_FRAME, frame => {
+        const video: VideoFrame = frame;
+        const timestamp: number = frame.timestamp;
+    });
+    pipeline.on(DecodePipelineEvents.ERROR, error => {
+        const category: 'network' | 'demux' | 'worker' | 'decode' = error.type;
+    });
+    pipeline.updatePresentationState({state: 'playing', queuedFrames: 3, bufferedAheadMs: 100, presentedPTS: 1000000});
+    pipeline.on(DecodePipelineEvents.VIDEO_BUFFER_STATS, stats => {
+        const queued: number = stats.encodedFrames;
+    });
+    pipeline.on(DecodePipelineEvents.VIDEO_RESET, event => {
+        const reason: string = event.reason;
+    });
+    pipeline.on(DecodePipelineEvents.VIDEO_LIVE_EDGE, event => {
+        const pts: number = event.pts;
+    });
+    // @ts-expect-error Decoding requires explicit opt-in.
+    createDecodePipeline({type: 'flv', url: '/live.flv'}, {webcodec: false});
 }

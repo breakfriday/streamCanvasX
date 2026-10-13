@@ -52,9 +52,6 @@ class DecodeStreamController implements Mpegts.DecodeStream {
         if (!source || source.type !== 'flv' || !source.url || source.segments) {
             throw new TypeError('DecodeStreamController requires a single FLV URL (multipart/seek are not supported)');
         }
-        if (config.enableWorker === true) {
-            throw new TypeError('DecodeStreamController Worker transport is not implemented; use enableWorker: false');
-        }
         this._source = {...source, cors: source.cors !== false, withCredentials: source.withCredentials === true};
         // The legacy JS defaults widen seekType to string; the public contract
         // supplies the range/param/custom union without changing that module.
