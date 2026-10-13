@@ -47,6 +47,76 @@ let player: ReturnType<typeof createPlayerServiceInstance> | undefined;
 let decodeStream: Mpegts.DecodeStream | undefined;
 let renderer: WebCodecsVideoRenderer | undefined;
 let runId = 0;
+const compareButton = document.querySelector<HTMLButtonElement>("#compare-players")!;
+const comparisonPanel = document.querySelector<HTMLElement>("#comparison-panel")!;
+const comparisonRoot = document.querySelector<HTMLElement>("#comparison-root")!;
+const comparisonNote = document.querySelector<HTMLElement>("#comparison-note")!;
+const previewTitle = document.querySelector<HTMLElement>("#preview-title")!;
+const mseCounts = document.querySelector<HTMLElement>("#mse-counts")!;
+const cleanups: Array<() => void> = [];
+
+function numberSetting(id: string, fallback: number): number {
+  const input = document.querySelector<HTMLInputElement>(`#${id}`)!;
+  const value = input.value === "" && !input.validity.badInput ? fallback : input.valueAsNumber;
+  if (!Number.isFinite(value)) throw new Error(`${id} 必须是有效数字`);
+  return value;
+}
+
+function readMseLatency(): number {
+  const latency = numberSetting("mse-max-latency", 1.5);
+  if (latency <= 0.5) throw new Error("MSE 追帧触发阈值必须大于保留缓冲 0.5 秒");
+  return latency;
+}
+
+function configureMse(maxLatency: number): void {
+  // Use the existing upper-player configuration entry; preserve other settings.
+  const host = window as Window & {playerCustomConfig?: Record<string, unknown>};
+  host.playerCustomConfig = {...host.playerCustomConfig, liveBufferLatencyMaxLatency: maxLatency};
+}
+
+function watchStatistics(update: () => void): void {
+  let animation = 0;
+  const tick = () => { update(); animation = requestAnimationFrame(tick); };
+  animation = requestAnimationFrame(tick);
+  cleanups.push(() => cancelAnimationFrame(animation));
+}
+
+function isLocalSample(url: string): boolean {
+  return [avURL, hevcURL, pcmURL].some(sample =>
+    new URL(sample, document.baseURI).href === new URL(url, document.baseURI).href);
+}
+
+function startMseComparison(url: string, maxLatency: number): void {
+  configureMse(maxLatency);
+  const current = player = createPlayerServiceInstance({
+    url, contentEl: comparisonRoot, streamType: "flv", isLive: !isLocalSample(url),
+    hasAudio: true, hasVideo: true, isMuted: true,
+  });
+  current.createPlayer({});
+  const started = performance.now();
+  let firstFrameMs: number | undefined;
+  let frameTimes: number[] = [];
+  const video = current.meidiaEl;
+  if (!(video instanceof HTMLVideoElement)) throw new Error("MSE 视频元素未创建");
+  let callback = 0;
+  const onFrame = () => {
+    const now = performance.now();
+    firstFrameMs ??= now - started;
+    frameTimes = frameTimes.filter(time => now - time < 1000);
+    frameTimes.push(now);
+    callback = video.requestVideoFrameCallback(onFrame);
+  };
+  callback = video.requestVideoFrameCallback(onFrame);
+  watchStatistics(() => {
+    const now = performance.now();
+    frameTimes = frameTimes.filter(time => now - time < 1000);
+    const ranges = video.buffered;
+    const end = ranges.length ? ranges.end(ranges.length - 1) : null;
+    const quality = video.getVideoPlaybackQuality();
+    mseCounts.textContent = `视频呈现 FPS：${frameTimes.length}；首帧等待：${firstFrameMs === undefined ? '等待中' : Math.round(firstFrameMs) + ' ms'}；缓冲末尾距播放位置：${end === null ? '-' : Math.round(Math.max(0, end - video.currentTime) * 1000)} ms；浏览器丢帧：${quality.droppedVideoFrames}；readyState：${video.readyState}；播放倍率：${video.playbackRate.toFixed(3)}`;
+  });
+  cleanups.push(() => video.cancelVideoFrameCallback(callback));
+}
 
 function updateModeControls(): void {
   decodeVideoInput!.disabled = !webcodecInput!.checked;
@@ -71,6 +141,7 @@ urlInput.addEventListener("input", () => {
 
 function destroyCurrent(): void {
   runId++;
+  for (const cleanup of cleanups.splice(0)) cleanup();
   decodeStream?.destroy();
   decodeStream = undefined;
   renderer?.destroy();
@@ -78,31 +149,40 @@ function destroyCurrent(): void {
   player?.destroy();
   player = undefined;
   root!.replaceChildren();
+  comparisonRoot.replaceChildren();
+  comparisonPanel.hidden = comparisonNote.hidden = previewTitle.hidden = true;
+  mseCounts.textContent = "";
   renderStatus!.hidden = true;
 }
 
-async function startDecodeStream(url: string, session: number): Promise<void> {
-  const localSample = [avURL, hevcURL, pcmURL].some(sample =>
-    new URL(sample, document.baseURI).href === new URL(url, document.baseURI).href);
+async function startDecodeStream(url: string, session: number, mseLatency?: number): Promise<void> {
+  const comparison = mseLatency !== undefined;
+  const localSample = isLocalSample(url);
   const source = { type: "flv", url, isLive: !localSample };
   const config = { webcodec: true as const, enableStashBuffer: false };
-  const decodeVideo = decodeVideoInput!.checked;
+  const decodeVideo = comparison || decodeVideoInput!.checked;
   const pipeline = decodeVideo
-    ? createDecodePipeline(source, {...config, emitEncodedSamples: true, presentationFeedback: true})
+    ? createDecodePipeline(source, {...config, emitEncodedSamples: !comparison, presentationFeedback: true})
     : undefined;
   const stream = pipeline ?? createStream(source, config);
   decodeStream = stream;
   const counts = { video: 0, audio: 0, pcm: 0, decoded: 0, rendered: 0 };
   let bufferStats: Mpegts.VideoBufferStatistics | undefined;
+  let playbackStartedAt = 0;
+  let firstFrameMs: number | undefined;
   const updateCounts = () => {
+    if (session !== runId) return;
     const stats = renderer?.statistics;
-    sampleCounts!.textContent = `视频编码帧数：${counts.video}；音频编码帧数：${counts.audio}；PCM 数据块：${counts.pcm}；接收视频帧：${counts.decoded}；渲染帧：${counts.rendered}` +
+    sampleCounts!.textContent = (comparison ? `首帧等待：${firstFrameMs === undefined ? '等待中' : Math.round(firstFrameMs) + ' ms'}；` :
+      `视频编码帧数：${counts.video}；音频编码帧数：${counts.audio}；PCM 数据块：${counts.pcm}；`) +
+      `接收视频帧：${counts.decoded}；渲染帧：${counts.rendered}` +
       (stats ? `；显示 FPS：${stats.renderFps}；待显示：${stats.queuedFrames} 帧 / ${Math.round(stats.bufferedAheadMs)} ms；显示丢帧：${stats.droppedFrames}；缓冲状态：${stats.state}；重新缓冲：${stats.rebufferCount}` +
         (source.isLive ? `；播放倍率：${stats.playbackRate.toFixed(3)}；接收边缘落后：${stats.liveLatencyMs === null ? '-' : Math.round(stats.liveLatencyMs)} ms；时钟前移次数：${stats.fastCatchUps}` : '') : '') +
       (bufferStats ? `；待解码：${bufferStats.encodedFrames} 帧 / ${Math.round(bufferStats.encodedBufferedMs)} ms；解码待输出：${bufferStats.pendingDecodeFrames}；解码后追帧丢弃：${bufferStats.decodeDiscardedFrames}；编码跳过：${bufferStats.encodedSkippedFrames}；解码重启：${bufferStats.keyframeJumps}${bufferStats.waitingForKeyframe ? "（等待 IDR）" : ""}；传输丢帧：${bufferStats.transportDroppedFrames}` : '');
   };
   sampleCounts!.hidden = false;
   updateCounts();
+  watchStatistics(updateCounts);
 
   if (pipeline) {
     status!.textContent = "正在初始化视频渲染器…";
@@ -113,6 +193,7 @@ async function startDecodeStream(url: string, session: number): Promise<void> {
         if (session === runId) pipeline.updatePresentationState(state);
       },
       onRendered: () => {
+        firstFrameMs ??= performance.now() - playbackStartedAt;
         counts.rendered++;
         updateCounts();
       },
@@ -187,7 +268,9 @@ async function startDecodeStream(url: string, session: number): Promise<void> {
   status!.textContent =
     decodeVideo ? "Worker 视频解码已启动（音频暂未播放）。" :
     "编码流调试已启动；请在控制台筛选 [DecodeStream] 查看数据。";
+  playbackStartedAt = performance.now();
   stream.start();
+  if (mseLatency !== undefined) startMseComparison(url, mseLatency);
 }
 
 createButton.addEventListener("click", async () => {
@@ -197,6 +280,9 @@ createButton.addEventListener("click", async () => {
     return;
   }
 
+  let mseLatency: number;
+  try { mseLatency = webcodecInput.checked ? 1.5 : readMseLatency(); }
+  catch (error) { status.textContent = `配置无效：${(error as Error).message}`; return; }
   destroyCurrent();
   sampleCounts.hidden = true;
   sampleCounts.textContent = "";
@@ -213,6 +299,7 @@ createButton.addEventListener("click", async () => {
     return;
   }
 
+  configureMse(mseLatency);
   player = createPlayerServiceInstance({
     url,
     contentEl: root,
@@ -221,6 +308,26 @@ createButton.addEventListener("click", async () => {
   });
   player.createPlayer({});
   status.textContent = "播放器已开始加载；请在控制台查看网络或解码错误。";
+});
+
+compareButton.addEventListener("click", async () => {
+  const url = urlInput.value.trim();
+  if (!url) { status.textContent = "请先输入一个 FLV URL。"; return; }
+  let mseLatency: number;
+  try { mseLatency = readMseLatency(); }
+  catch (error) { status.textContent = `配置无效：${(error as Error).message}`; return; }
+  destroyCurrent();
+  comparisonPanel.hidden = comparisonNote.hidden = previewTitle.hidden = false;
+  sampleCounts.hidden = false;
+  mseCounts.textContent = "等待 MSE 启动…";
+  const session = runId;
+  try {
+    await startDecodeStream(url, session, mseLatency);
+  } catch (error) {
+    if (session !== runId) return;
+    destroyCurrent();
+    status.textContent = `双路对比启动失败：${error instanceof Error ? error.message : String(error)}`;
+  }
 });
 
 destroyButton.addEventListener("click", () => {

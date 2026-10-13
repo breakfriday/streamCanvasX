@@ -123,3 +123,62 @@ test('playground reports missing URL and network failures', async ({page}) => {
     expect(await page.evaluate(() => playgroundErrors)).toEqual([]);
     await page.locator('#destroy-player').click();
 });
+
+test('playground compares MSE and WebCodecs together and cleans up both when switching', async ({page}) => {
+    await page.locator('#sample-stream').selectOption('av');
+    await page.locator('#mse-max-latency').fill('0.9');
+    await page.locator('#compare-players').click();
+    await expect(page.locator('#comparison-panel')).toBeVisible();
+    await expect(page.locator('#sample-counts')).toContainText(/渲染帧：[1-9]/);
+    await expect(page.locator('#mse-counts')).toContainText(/首帧等待：\d+ ms/);
+    await page.waitForFunction(() => playgroundMediaSources.length === 2 &&
+        playgroundMediaSources.every(mse => mse.sourceBuffers.length > 0 && mse.sourceBuffers[0].buffered.length > 0));
+    await expect(page.locator('#player-root canvas')).toHaveCount(1);
+    // Switch to the existing single-path debug mode; neither old MSE remains open.
+    await page.locator('#webcodec').check();
+    await page.locator('#decode-video').uncheck();
+    await page.locator('#create-player').click();
+    await expect(page.locator('#status')).toContainText('编码流读取完成');
+    await expect(page.locator('#comparison-panel')).toBeHidden();
+    await page.waitForFunction(() => playgroundMediaSources.every(mse => mse.readyState === 'closed'));
+    await expect(page.locator('#comparison-root')).toBeEmpty();
+    await page.locator('#destroy-player').click();
+    expect(await page.evaluate(() => playgroundErrors)).toEqual([]);
+});
+
+test('optional live comparison renders both modes and releases them on destroy', async ({page}) => {
+    test.skip(!process.env.STREAMCANVASX_LIVE_URL, 'Requires a live stream');
+    await page.locator('#stream-url').fill(process.env.STREAMCANVASX_LIVE_URL);
+    await page.locator('#compare-players').click();
+    await expect(page.locator('#sample-counts')).toContainText(/渲染帧：[1-9]/, {timeout: 15000});
+    await expect(page.locator('#mse-counts')).toContainText(/首帧等待：\d+ ms/, {timeout: 15000});
+    await expect(page.locator('#mse-counts')).toContainText(/视频呈现 FPS：[1-9]/);
+    await expect(page.locator('#sample-counts')).toContainText(/显示 FPS：[1-9]/);
+    await page.locator('#destroy-player').click();
+    await page.waitForFunction(() => playgroundMediaSources.length === 2 &&
+        playgroundMediaSources.every(mse => mse.readyState === 'closed'));
+    await expect(page.locator('#comparison-root')).toBeEmpty();
+    await expect(page.locator('#player-root')).toBeEmpty();
+    expect(await page.evaluate(() => playgroundErrors)).toEqual([]);
+});
+
+
+test('playground rejects inconsistent latency settings before starting either player', async ({page}) => {
+    await page.locator('#sample-stream').selectOption('av');
+    for (const [id, invalid, restore, message] of [
+        ['mse-max-latency', '0.5', '1.5', '必须大于保留缓冲'],
+        ['mse-max-latency', '0.4', '1.5', '必须大于保留缓冲'],
+    ]) {
+        await page.locator(`#${id}`).fill(invalid);
+        await page.locator('#compare-players').click();
+        await expect(page.locator('#status')).toContainText(message);
+        expect(await page.evaluate(() => playgroundMediaSources.length)).toBe(0);
+        await expect(page.locator('#player-root canvas')).toHaveCount(0);
+        await page.locator(`#${id}`).fill(restore);
+    }
+    await page.locator('#create-player').click();
+    await page.waitForFunction(() => playgroundMediaSources.length === 2 &&
+        playgroundMediaSources.every(mse => mse.sourceBuffers.length > 0 && mse.sourceBuffers[0].buffered.length > 0));
+    await page.locator('#destroy-player').click();
+    expect(await page.evaluate(() => playgroundErrors)).toEqual([]);
+});

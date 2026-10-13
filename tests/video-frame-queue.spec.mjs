@@ -87,7 +87,7 @@ test('sustained mild lateness restores buffering without repeatedly resetting on
     expect(result.normal.closed).toBe(61);
 });
 
-test('EOF drains a short initial buffer, duplicates close once, and invalid options are rejected', async ({page}) => {
+test('EOF drains a short initial buffer and duplicates close once', async ({page}) => {
     const result = await page.evaluate(async () => {
         const {default: Queue} = await import('/packages/player/src/services/renderingEngines/video-frame-queue.ts');
         const queue = new Queue();
@@ -98,12 +98,9 @@ test('EOF drains a short initial buffer, duplicates close once, and invalid opti
         queue.finish(3);
         const tail = queue.take(3);
         tail?.close(); queue.clear();
-        const invalid = [{delayMs: -1}, {maxFrames: 0}, {maxFrames: 1.5}, {maxBufferedMs: NaN}]
-            .map(options => { try { new Queue(options); return false; } catch { return true; } });
-        return {before, timestamp: tail?.timestamp, closed, dropped: queue.dropped, invalid};
+        return {before, timestamp: tail?.timestamp, closed, dropped: queue.dropped};
     });
-    expect(result).toEqual({before: null, timestamp: 1000, closed: [1, 1], dropped: 1,
-        invalid: [true, true, true, true]});
+    expect(result).toEqual({before: null, timestamp: 1000, closed: [1, 1], dropped: 1});
 });
 
 test('presentation clock does not change its rate with display refresh frequency', async ({page}) => {
@@ -181,7 +178,7 @@ test('large live backlog seeks forward and late decoder output cannot rewind the
         queue.updateLiveEdge(2000000, 200);
         const cutoff = queue.discardBeforePTS(200);
         push(100000, 201); // Previously submitted output arrives after the catch-up command.
-        push(1850000, 201);
+        push(1900000, 201);
         const caught = queue.take(201);
         const timestamp = caught?.timestamp;
         caught?.close();
@@ -190,11 +187,11 @@ test('large live backlog seeks forward and late decoder output cannot rewind the
         queue.clear();
         return {cutoff, timestamp, lag, jumps, closed};
     });
-    expect(result.cutoff).toBe(1850000);
-    expect(result.timestamp).toBe(1850000);
-    expect(result.lag).toBe(150);
+    expect(result.cutoff).toBe(1900000);
+    expect(result.timestamp).toBe(1900000);
+    expect(result.lag).toBe(100);
     expect(result.jumps).toBe(1);
-    expect(result.closed.sort((a, b) => a - b)).toEqual([0, 33000, 100000, 1850000]);
+    expect(result.closed.sort((a, b) => a - b)).toEqual([0, 33000, 100000, 1900000]);
 });
 
 test('a live network stall cannot make the moving discard deadline reject every new frame', async ({page}) => {

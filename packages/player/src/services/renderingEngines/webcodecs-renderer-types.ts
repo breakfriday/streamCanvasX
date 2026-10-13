@@ -16,7 +16,8 @@ export interface VideoFrameRenderer {
     destroy(): void;
 }
 
-export interface VideoRendererOptions extends VideoFrameQueueOptions {
+export interface VideoRendererOptions {
+    live?: boolean;
     backend?: VideoRenderBackend;
     onRendered?: () => void;
     onBackendChanged?: (backend: VideoRenderBackend, fallbackReason?: string) => void;
@@ -24,4 +25,3 @@ export interface VideoRendererOptions extends VideoFrameQueueOptions {
     /** Report after accepting, consuming or dropping retained frames. */
     onPresentationState?: (state: VideoPresentationState) => void;
 }
-import type {VideoFrameQueueOptions} from './video-frame-queue';

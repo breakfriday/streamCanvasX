@@ -11,3 +11,10 @@ ffmpeg -f lavfi -i sine=frequency=440:sample_rate=8000 -t 1 -c:a pcm_mulaw -f fl
 ```
 
 The MPEG-TS fixture uses `.mpegts` so Vite does not treat it as TypeScript.
+
+`hevc.flv` is a two-frame, silent 160x96 blue image generated with FFmpeg/libx265
+(`color=c=blue:s=160x96:r=5`, duration 0.4 s, ultrafast, yuv420p,
+`pools=1:frame-threads=1`). Its MP4 hvcC and length-prefixed packets were wrapped
+in legacy FLV codec-id 12 tags, preserving DTS and signed composition offsets.
+It validates HEVC configuration and sample transport only, without requiring a
+browser HEVC decoder. Tests do not invoke FFmpeg.

@@ -15,7 +15,7 @@ export default class WebCodecsVideoRenderer {
     private initialization = new AbortController();
 
     constructor(private container: HTMLElement, private options: VideoRendererOptions = {}) {
-        this.queue = new VideoFrameQueue<VideoFrame>(options);
+        this.queue = new VideoFrameQueue<VideoFrame>({live: options.live});
         this.ready = this.initialize();
     }
 

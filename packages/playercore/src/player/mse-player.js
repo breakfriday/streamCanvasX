@@ -248,7 +248,8 @@ class MSEPlayer {
                         let buffered_end = buffered.end(buffered.length - 1);
                         if (buffered_end - currentTime > this._config.liveBufferLatencyMaxLatency) {
                             // if remained data duration has larger than config.liveBufferLatencyMaxLatency
-                            let target_time = buffered_end - this._config.liveBufferLatencyMinRemain;
+                            let target_time = Math.max(buffered.start(buffered.length - 1),
+                                Math.min(buffered_end - 0.001, buffered_end - this._config.liveBufferLatencyMinRemain));
                             this._audioMeidaElement.currentTime= target_time;
                           
                         }
@@ -565,9 +566,25 @@ class MSEPlayer {
         this._assertNotDestroyed();
         if (this._reloadRequest) this._reloadRequest.play = true;
         if (this.splitAVBuffers === true && this._audioMeidaElement) {
-            this._audioMeidaElement.play();
+            this._playMediaElement(this._audioMeidaElement);
         }
-        return this._mediaElement.play();
+        return this._playMediaElement(this._mediaElement);
+    }
+
+    _playMediaElement(media) {
+        const attachmentId = this._attachmentId;
+        const result = media.play();
+        if (result && typeof result.catch === 'function') {
+            // Own both play requests. A detach/pause can interrupt either while
+            // it waits for data; the auxiliary audio promise has no public caller.
+            result.catch(error => {
+                if (!this._destroyed && attachmentId === this._attachmentId && error.name !== 'AbortError') {
+                    Log.w(this.TAG, `Unable to play media: ${error.message}`);
+                }
+            });
+        }
+        // Preserve the original promise so callers can still observe rejection.
+        return result;
     }
 
     pause() {
@@ -679,7 +696,11 @@ class MSEPlayer {
                 // Ensure there's enough buffered data
                 if (buffered_end - currentTime > this._config.liveBufferLatencyMaxLatency) {
                     // if remained data duration has larger than config.liveBufferLatencyMaxLatency
-                    let target_time = buffered_end - this._config.liveBufferLatencyMinRemain;
+                    // The first usable GOP may begin well after zero, with less
+                    // than MinRemain buffered. Never chase into the preceding gap:
+                    // _internalSeek would clear MSE and request a network seek.
+                    let target_time = Math.max(buffered.start(buffered.length - 1),
+                        Math.min(buffered_end - 0.001, buffered_end - this._config.liveBufferLatencyMinRemain));
                     this.currentTime = target_time;
                 }
             }

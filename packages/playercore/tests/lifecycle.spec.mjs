@@ -248,3 +248,52 @@ test('closed MediaSource removes SourceBuffer listeners and ignores queued callb
     expect(result.errors).toBe(result.count);
     expect(result.updates).toBe(result.count);
 });
+
+test('pending dual-MSE play requests can be paused and detached without unhandled AbortError', async ({lifecyclePage: page}) => {
+    await page.evaluate(() => {
+        makePlayer({splitAVBuffers: true});
+        // No media data: both native play promises remain pending until pause/detach.
+        player.play();
+        player.pause();
+        player.detachMediaElement();
+    });
+    await page.waitForTimeout(100);
+    await page.evaluate(() => player.destroy());
+});
+
+test('play still returns the native rejection to callers while owning auxiliary audio rejection', async ({lifecyclePage: page}) => {
+    const message = await page.evaluate(async () => {
+        makePlayer({splitAVBuffers: true});
+        const video = document.querySelector('#video'), audio = document.querySelector('#audio');
+        video.play = () => Promise.reject(new DOMException('Video denied', 'NotAllowedError'));
+        audio.play = () => Promise.reject(new DOMException('Audio denied', 'NotAllowedError'));
+        try { await player.play(); return 'unexpected success'; }
+        catch (error) { return error.message; }
+        finally { player.destroy(); }
+    });
+    expect(message).toBe('Video denied');
+});
+
+test('live latency chasing stays inside a short late GOP instead of clearing MSE with an unbuffered seek', async ({lifecyclePage: page}) => {
+    const result = await page.evaluate(() => {
+        const results = [];
+        for (const ranges of [[[6, 6.2]], [[0, 0.8], [6, 6.2]]]) {
+            makePlayer({isLive: true, liveBufferLatencyChasing: true, liveBufferLatencyMinRemain: 0.5});
+            const realMedia = player._mediaElement;
+            const calls = [];
+            const media = {paused: false, currentTime: 0, buffered: {
+                length: ranges.length, start: i => ranges[i][0], end: i => ranges[i][1]
+            }};
+            player._mediaElement = media;
+            player._transmuxer = {seek: time => calls.push(['network', time])};
+            const seek = player._msectl.seek;
+            player._msectl.seek = time => calls.push(['clear', time]);
+            player._onmseUpdateEnd();
+            results.push({time: media.currentTime, calls});
+            player._mediaElement = realMedia; player._transmuxer = null; player._msectl.seek = seek;
+            player.destroy();
+        }
+        return results;
+    });
+    expect(result).toEqual([{time: 6, calls: []}, {time: 6, calls: []}]);
+});

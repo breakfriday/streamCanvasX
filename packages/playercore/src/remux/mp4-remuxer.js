@@ -154,9 +154,7 @@ class MP4Remuxer {
         if (!this._onMediaSegment) {
             throw new IllegalStateException('MP4Remuxer: onMediaSegment callback must be specificed!');
         }
-        if (!this._dtsBaseInited) {
-            this._calculateDtsBase(audioTrack, videoTrack);
-        }
+        this._calculateDtsBase(audioTrack, videoTrack);
         if (videoTrack) {
             this._remuxVideo(videoTrack);
         }
@@ -212,19 +210,22 @@ class MP4Remuxer {
     }
 
     _calculateDtsBase(audioTrack, videoTrack) {
-        if (this._dtsBaseInited) {
-            return;
-        }
-
-        if (audioTrack && audioTrack.samples && audioTrack.samples.length) {
+        // Network batches can contain only one track. Initialize each track once
+        // when its first sample arrives, even after the shared base is established.
+        if (!Number.isFinite(this._audioDtsBase) && audioTrack && audioTrack.samples && audioTrack.samples.length) {
             this._audioDtsBase = audioTrack.samples[0].dts;
         }
-        if (videoTrack && videoTrack.samples && videoTrack.samples.length) {
+        if (!Number.isFinite(this._videoDtsBase) && videoTrack && videoTrack.samples && videoTrack.samples.length) {
             this._videoDtsBase = videoTrack.samples[0].dts;
         }
 
-        this._dtsBase = Math.min(this._audioDtsBase, this._videoDtsBase);
-        this._dtsBaseInited = true;
+        if (!this._dtsBaseInited) {
+            const base = Math.min(this._audioDtsBase, this._videoDtsBase);
+            if (Number.isFinite(base)) {
+                this._dtsBase = base;
+                this._dtsBaseInited = true;
+            }
+        }
     }
 
     getTimestampBase() {

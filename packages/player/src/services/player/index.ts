@@ -532,10 +532,28 @@ class PlayerService extends Emitter {
             }
 
 
-            this.corePlayer.on(corePlayer.Events.MEDIA_INFO, (parm) => {
-                let video_width = parm.metadata.width;
-                let video_height = parm.metadata.height;
+            // FLV onMetaData is optional. Codec-derived MEDIA_INFO can also start playback.
+            const msePlayer = this.corePlayer;
+            let playbackStarted = false;
+            const startLivePlayback = (isHEVC: boolean) => {
+                if (playbackStarted || this.corePlayer !== msePlayer) return;
+                playbackStarted = true;
+                if (this.config.isMuted === true) {
+                    setTimeout(() => {
+                        if (this.corePlayer === msePlayer) this.audioProcessingService.mute(true);
+                    }, 200);
+                }
+                this.canvasVideoService.loading = false;
+                if (isHEVC && corePlayer.getFeatureList().mseH265Playback === false) {
+                    this.destroy();
+                    this.wasmModel = true;
+                    this.createBetaPlayer2();
+                    return;
+                }
+                msePlayer.play();
+            };
 
+            this.corePlayer.on(corePlayer.Events.MEDIA_INFO, (parm) => {
                 this.mediaInfo = parm;
 
                 // Stop video checks independently of whether PCM already enabled the waveform.
@@ -575,10 +593,7 @@ class PlayerService extends Emitter {
                 }
 
 
-                // this.metadata = {
-                //   video_height, video_width,
-                // };
-                // this.getVideoSize();
+                startLivePlayback(/^(hvc1|hev1)(\.|$)/.test(parm.videoCodec ?? ''));
             });
 
             this.corePlayer.on(corePlayer.Events.ERROR, (error, detailError) => {
@@ -660,33 +675,7 @@ class PlayerService extends Emitter {
 
 
             this.corePlayer.on(corePlayer.Events.METADATA_ARRIVED, (parm) => {
-                // this.canvasVideoService.loading = false;
-                // this.httpFlvStreamService.hertTime = 0;
-                if (this.config.isMuted === true) {
-                    setTimeout(() => {
-                        this.audioProcessingService.mute(true);
-                    }, 200);
-                }
-
-                this.canvasVideoService.loading = false;
-                let { mseLivePlayback, mseH265Playback } = corePlayer.getFeatureList();
-
-
-                // 12 是H265 , FLV的 解码器id
-                if (parm.videocodecid == 12 && mseH265Playback === false) {
-                    this.destroy();
-
-                    console.log('使用jessibuca 軟解码中');
-
-
-                    this.wasmModel = true;
-
-                    this.createBetaPlayer2();
-                    return false;
-                } else {
-                    console.log('使用 硬解');
-                    this.corePlayer.play();
-                }
+                startLivePlayback(parm.videocodecid == 12);
             });
         }
 

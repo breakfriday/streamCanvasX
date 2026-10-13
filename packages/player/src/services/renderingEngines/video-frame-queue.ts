@@ -1,11 +1,10 @@
-import VideoPresentationClock, {type LiveClockOptions} from './video-presentation-clock';
+import VideoPresentationClock from './video-presentation-clock';
+import {WEBCODECS_LIVE_CONFIG, WEBCODECS_FILE_CONFIG} from '../../constant/webcodecs-config';
 
 export interface TimedFrame { readonly timestamp: number; close(): void; }
 
-export interface VideoFrameQueueOptions extends LiveClockOptions {
-    delayMs?: number;
-    maxFrames?: number;
-    maxBufferedMs?: number;
+export interface VideoFrameQueueOptions {
+    live?: boolean;
 }
 
 /** Video-only presentation clock. Owns queued frames; timestamps are microseconds. */
@@ -23,9 +22,10 @@ export default class VideoFrameQueue<T extends TimedFrame> {
 
     constructor(options: VideoFrameQueueOptions = {}) {
         this.live = options.live === true;
-        this.delayMs = options.delayMs ?? (options.live ? 60 : 100);
-        this.maxFrames = options.maxFrames ?? 16;
-        this.maxBufferedMs = options.maxBufferedMs ?? (options.live ? 700 : 400);
+        const config = this.live ? WEBCODECS_LIVE_CONFIG : WEBCODECS_FILE_CONFIG;
+        this.delayMs = config.delayMs;
+        this.maxFrames = config.maxFrames;
+        this.maxBufferedMs = config.maxBufferedMs;
         if (!Number.isFinite(this.delayMs) || this.delayMs < 0 ||
             !Number.isInteger(this.maxFrames) || this.maxFrames < 1 ||
             !Number.isFinite(this.maxBufferedMs) || this.maxBufferedMs < this.delayMs) {

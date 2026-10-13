@@ -1,10 +1,9 @@
+import {WEBCODECS_LIVE_CONFIG, WEBCODECS_FILE_CONFIG} from '../../constant/webcodecs-config';
+
 export type VideoPresentationPhase = 'buffering' | 'playing' | 'rebuffering' | 'ended';
 
 export interface LiveClockOptions {
     live?: boolean;
-    targetLatencyMs?: number;
-    maxLatencyMs?: number;
-    maxPlaybackRate?: number;
 }
 
 /** Video-only media clock. Times passed by the renderer are local monotonic milliseconds. */
@@ -24,10 +23,10 @@ export default class VideoPresentationClock {
     rebufferCount = 0;
     fastCatchUps = 0;
 
-    constructor(private delayMs = 100, private options: LiveClockOptions = {}) {
-        this.targetLatencyMs = options.targetLatencyMs ?? 150;
-        this.maxLatencyMs = options.maxLatencyMs ?? 700;
-        this.maxPlaybackRate = options.maxPlaybackRate ?? 1.25;
+    constructor(private delayMs: number = WEBCODECS_FILE_CONFIG.delayMs, private options: LiveClockOptions = {}) {
+        this.targetLatencyMs = WEBCODECS_LIVE_CONFIG.targetLatencyMs;
+        this.maxLatencyMs = WEBCODECS_LIVE_CONFIG.maxLatencyMs;
+        this.maxPlaybackRate = WEBCODECS_LIVE_CONFIG.maxPlaybackRate;
         if (!Number.isFinite(this.targetLatencyMs) || this.targetLatencyMs < 0 ||
             !Number.isFinite(this.maxLatencyMs) || this.maxLatencyMs <= this.targetLatencyMs ||
             !Number.isFinite(this.maxPlaybackRate) || this.maxPlaybackRate < 1 || this.maxPlaybackRate > 2) {

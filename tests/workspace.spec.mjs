@@ -218,8 +218,9 @@ test('live dual-MSE plays FLV without onMetaData and renders decoded dimensions'
   expect(await page.evaluate(() => failures)).toEqual([]);
 });
 
-test('optional supplied live stream plays through the legacy dual-MSE path', async ({page}) => {
+test('optional supplied live stream starts and reloads through independent MSE buffers', async ({page}) => {
   test.skip(!process.env.STREAMCANVASX_LIVE_URL, 'Requires the supplied live stream');
+  test.setTimeout(45000);
   await page.evaluate(url => {
     window.upper = api.createPlayerServiceInstance({url,
       contentEl: document.querySelector('#player-root'), streamType: 'flv', isLive: true,
@@ -228,25 +229,19 @@ test('optional supplied live stream plays through the legacy dual-MSE path', asy
     upper.createPlayer({});
     upper.corePlayer.on(api.streamcanvasCore.Events.ERROR, (...args) => failures.push(args));
   }, process.env.STREAMCANVASX_LIVE_URL);
-  let lastState;
-  await expect.poll(async () => lastState = await page.evaluate(() => ({
-    rendered: upper.canvasVideoService.mediaView.nowFrameCount ?? 0,
-    failures,
-    info: upper.mediaInfo,
-    video: upper.meidiaEl && {paused: upper.meidiaEl.paused, ready: upper.meidiaEl.readyState,
-      time: upper.meidiaEl.currentTime, width: upper.meidiaEl.videoWidth,
-      buffered: Array.from({length: upper.meidiaEl.buffered.length}, (_, i) =>
-        [upper.meidiaEl.buffered.start(i), upper.meidiaEl.buffered.end(i)])},
-    audio: upper.audioEl && {paused: upper.audioEl.paused, ready: upper.audioEl.readyState,
-      time: upper.audioEl.currentTime},
-  })), {timeout: 10000}).toMatchObject({rendered: expect.any(Number),
-    failures: [], video: {paused: false, width: expect.any(Number), ready: 4}}).catch(error => {
-      console.log('MSE live diagnostic', JSON.stringify(lastState)); throw error;
-    });
-  await page.waitForFunction(() => upper.canvasVideoService.mediaView.nowFrameCount > 10, null, {timeout: 5000});
-  expect(await page.evaluate(() => upper.corePlayer instanceof api.streamcanvasCore.MSEPlayer)).toBe(true);
-  expect(await page.evaluate(() => upper.meidiaEl.videoWidth)).toBeGreaterThan(0);
-  expect(await page.evaluate(() => upper.audioEl.buffered.length)).toBeGreaterThan(0);
+  for (let run = 0; run < 3; run++) {
+    if (run) await page.evaluate(() => upper.corePlayer.reload());
+    await page.waitForFunction(() => upper.corePlayer._receivedCanPlay &&
+      upper.meidiaEl.readyState >= 3 && upper.meidiaEl.currentTime > 0 &&
+      upper.canvasVideoService.mediaView.nowFrameCount > 10, null, {timeout: 12000});
+    expect(await page.evaluate(() => ({
+      mse: upper.corePlayer instanceof api.streamcanvasCore.MSEPlayer,
+      split: upper.corePlayer.splitAVBuffers, video: upper.meidiaEl.buffered.length > 0,
+      audio: upper.audioEl.buffered.length > 0,
+      differentSources: upper.corePlayer._msectl._mediaSource !== upper.corePlayer._msectl_audio._mediaSource,
+      failures,
+    }))).toEqual({mse: true, split: true, video: true, audio: true, differentSources: true, failures: []});
+  }
   await page.evaluate(() => upper.destroy());
   expect(await page.evaluate(() => failures)).toEqual([]);
 });
