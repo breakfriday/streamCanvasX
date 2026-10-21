@@ -441,9 +441,6 @@ export default function DemoComponent() {
               <option value="live">本机直播（localhost:8080）</option>
             </select>
           </label>
-          <p className={styles.hint}>
-            页面加载不会连接流。选择输入源后，手动启动测试。
-          </p>
         </div>
         <div className={styles.controlGroup}>
           <h2>解码与渲染</h2>
@@ -456,7 +453,7 @@ export default function DemoComponent() {
               checked={webcodec}
             />
             <span>
-              WebCodecs 独立链路<small>Worker 视频解码 · 暂不播放音频</small>
+              WebCodecs 独立链路<small> 默认 false 走mse 链路</small>
             </span>
           </label>
           <label className={styles.checkField}>
@@ -469,7 +466,7 @@ export default function DemoComponent() {
               disabled={!webcodec}
             />
             <span>
-              解码并显示视频<small>取消后仅调试编码与 PCM 样本</small>
+              {/* 解码并显示视频<small>取消后仅调试编码与 PCM 样本</small> */}
             </span>
           </label>
           <label className={styles.field}>
@@ -509,10 +506,7 @@ export default function DemoComponent() {
 
       <div className={styles.mainPanel}>
         <section className={styles.toolbar} aria-label="测试操作">
-          <div>
-            <span className={styles.eyebrow}>TEST SESSION</span>
-            <h2>播放检测工作台</h2>
-          </div>
+          <div></div>
           <div className={styles.actions}>
             <button
               id="create-player"
@@ -603,9 +597,6 @@ export default function DemoComponent() {
                   </span>
                 </h2>
               )}
-              <span className={styles.tag}>
-                {comparing ? "B / VIDEO" : "PREVIEW"}
-              </span>
             </header>
             <div
               id="player-root"
@@ -616,9 +607,6 @@ export default function DemoComponent() {
               <span id="render-status" hidden={!showRenderStatus}>
                 {renderStatus}
               </span>
-              {!showRenderStatus && (
-                <span>创建播放器后显示画面 · 支持 FLV 输入</span>
-              )}
             </div>
           </section>
         </div>
@@ -632,17 +620,11 @@ export default function DemoComponent() {
         <section className={styles.telemetry}>
           <header className={styles.panelHeading}>
             <div>
-              <span className={styles.eyebrow}>TELEMETRY</span>
               <h2>解码与渲染指标</h2>
             </div>
             <span className={styles.tag}>WEBCODECS</span>
           </header>
-          {!showSamples && (
-            <p className={styles.emptyMetrics}>
-              启动 WebCodecs 或双路对比后显示指标。纯样本调试可在控制台筛选{" "}
-              <code>[DecodeStream]</code> 查看数据。
-            </p>
-          )}
+          {!showSamples && <p className={styles.emptyMetrics}>decode stream</p>}
           <div
             id="sample-counts"
             hidden={!showSamples}
