@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import styles from "./index.module.css";
 import { createPlayerServiceInstance } from "@break_happy/streamcanvasx";
 import {
   createStream,
@@ -7,12 +8,11 @@ import {
   DecodePipelineEvents,
 } from "@break_happy/streamcanvasx-core";
 import WebCodecsVideoRenderer from "../packages/player/src/services/renderingEngines/webcodecs-video-renderer";
-import type {VideoRenderBackend} from "../packages/player/src/services/renderingEngines/webcodecs-renderer-types";
+import type { VideoRenderBackend } from "../packages/player/src/services/renderingEngines/webcodecs-renderer-types";
 import type Mpegts from "@break_happy/streamcanvasx-core";
 import avURL from "../packages/playercore/tests/fixtures/av.flv?url";
 import hevcURL from "../packages/playercore/tests/fixtures/hevc.flv?url";
 import pcmURL from "../tests/av-pcm.flv?url";
-
 
 export default function DemoComponent() {
   const playerRootRef = useRef<HTMLDivElement>(null);
@@ -23,7 +23,15 @@ export default function DemoComponent() {
   const decodeVideoRef = useRef<HTMLInputElement>(null);
   const renderRef = useRef<HTMLSelectElement>(null);
   const latencyRef = useRef<HTMLInputElement>(null);
-  const actions = useRef<Partial<Record<"create" | "compare" | "destroy" | "selectSample" | "inputUrl", () => void>>>({});
+  const actions = useRef<
+    Partial<
+      Record<
+        "create" | "compare" | "destroy" | "selectSample" | "inputUrl",
+        () => void
+      >
+    >
+  >({});
+  const [sessionMode, setSessionMode] = useState("待机");
   const [webcodec, setWebcodec] = useState(false);
   const [decodeVideo, setDecodeVideo] = useState(true);
   const [status, setStatus] = useState("");
@@ -50,63 +58,86 @@ export default function DemoComponent() {
 
     function numberSetting(id: string, fallback: number): number {
       const input = latencyRef.current!;
-      const value = input.value === "" && !input.validity.badInput ? fallback : input.valueAsNumber;
+      const value =
+        input.value === "" && !input.validity.badInput
+          ? fallback
+          : input.valueAsNumber;
       if (!Number.isFinite(value)) throw new Error(`${id} 必须是有效数字`);
       return value;
     }
 
     function readMseLatency(): number {
       const latency = numberSetting("mse-max-latency", 1.5);
-      if (latency <= 0.5) throw new Error("MSE 追帧触发阈值必须大于保留缓冲 0.5 秒");
+      if (latency <= 0.5)
+        throw new Error("MSE 追帧触发阈值必须大于保留缓冲 0.5 秒");
       return latency;
     }
 
     function configureMse(maxLatency: number): void {
       // Use the existing upper-player configuration entry; preserve other settings.
-      const host = window as Window & {playerCustomConfig?: Record<string, unknown>};
-      host.playerCustomConfig = {...host.playerCustomConfig, liveBufferLatencyMaxLatency: maxLatency};
+      const host = window as Window & {
+        playerCustomConfig?: Record<string, unknown>;
+      };
+      host.playerCustomConfig = {
+        ...host.playerCustomConfig,
+        liveBufferLatencyMaxLatency: maxLatency,
+      };
     }
 
     function watchStatistics(update: () => void): void {
       let animation = 0;
-      const tick = () => { update(); animation = requestAnimationFrame(tick); };
+      const tick = () => {
+        update();
+        animation = requestAnimationFrame(tick);
+      };
       animation = requestAnimationFrame(tick);
       cleanups.push(() => cancelAnimationFrame(animation));
     }
 
     function isLocalSample(url: string): boolean {
-      return [avURL, hevcURL, pcmURL].some(sample =>
-        new URL(sample, document.baseURI).href === new URL(url, document.baseURI).href);
+      return [avURL, hevcURL, pcmURL].some(
+        (sample) =>
+          new URL(sample, document.baseURI).href ===
+          new URL(url, document.baseURI).href,
+      );
     }
 
     function startMseComparison(url: string, maxLatency: number): void {
       configureMse(maxLatency);
-      const current = player = createPlayerServiceInstance({
-        url, contentEl: comparisonRoot, streamType: "flv", isLive: !isLocalSample(url),
-        hasAudio: true, hasVideo: true, isMuted: true,
-      });
+      const current = (player = createPlayerServiceInstance({
+        url,
+        contentEl: comparisonRoot,
+        streamType: "flv",
+        isLive: !isLocalSample(url),
+        hasAudio: true,
+        hasVideo: true,
+        isMuted: true,
+      }));
       current.createPlayer({});
       const started = performance.now();
       let firstFrameMs: number | undefined;
       let frameTimes: number[] = [];
       const video = current.meidiaEl;
-      if (!(video instanceof HTMLVideoElement)) throw new Error("MSE 视频元素未创建");
+      if (!(video instanceof HTMLVideoElement))
+        throw new Error("MSE 视频元素未创建");
       let callback = 0;
       const onFrame = () => {
         const now = performance.now();
         firstFrameMs ??= now - started;
-        frameTimes = frameTimes.filter(time => now - time < 1000);
+        frameTimes = frameTimes.filter((time) => now - time < 1000);
         frameTimes.push(now);
         callback = video.requestVideoFrameCallback(onFrame);
       };
       callback = video.requestVideoFrameCallback(onFrame);
       watchStatistics(() => {
         const now = performance.now();
-        frameTimes = frameTimes.filter(time => now - time < 1000);
+        frameTimes = frameTimes.filter((time) => now - time < 1000);
         const ranges = video.buffered;
         const end = ranges.length ? ranges.end(ranges.length - 1) : null;
         const quality = video.getVideoPlaybackQuality();
-        setMseCounts(`视频呈现 FPS：${frameTimes.length}；首帧等待：${firstFrameMs === undefined ? '等待中' : Math.round(firstFrameMs) + ' ms'}；缓冲末尾距播放位置：${end === null ? '-' : Math.round(Math.max(0, end - video.currentTime) * 1000)} ms；浏览器丢帧：${quality.droppedVideoFrames}；readyState：${video.readyState}；播放倍率：${video.playbackRate.toFixed(3)}`);
+        setMseCounts(
+          `视频呈现 FPS：${frameTimes.length}；首帧等待：${firstFrameMs === undefined ? "等待中" : Math.round(firstFrameMs) + " ms"}；缓冲末尾距播放位置：${end === null ? "-" : Math.round(Math.max(0, end - video.currentTime) * 1000)} ms；浏览器丢帧：${quality.droppedVideoFrames}；readyState：${video.readyState}；播放倍率：${video.playbackRate.toFixed(3)}`,
+        );
       });
       cleanups.push(() => video.cancelVideoFrameCallback(callback));
     }
@@ -126,6 +157,7 @@ export default function DemoComponent() {
 
     function destroyCurrent(): void {
       runId++;
+      setSessionMode("待机");
       for (const cleanup of cleanups.splice(0)) cleanup();
       decodeStream?.destroy();
       decodeStream = undefined;
@@ -140,14 +172,22 @@ export default function DemoComponent() {
       setShowRenderStatus(false);
     }
 
-    async function startDecodeStream(url: string, session: number, mseLatency?: number): Promise<void> {
+    async function startDecodeStream(
+      url: string,
+      session: number,
+      mseLatency?: number,
+    ): Promise<void> {
       const comparison = mseLatency !== undefined;
       const localSample = isLocalSample(url);
       const source = { type: "flv", url, isLive: !localSample };
       const config = { webcodec: true as const, enableStashBuffer: false };
       const decodeVideo = comparison || decodeVideoInput!.checked;
       const pipeline = decodeVideo
-        ? createDecodePipeline(source, {...config, emitEncodedSamples: !comparison, presentationFeedback: true})
+        ? createDecodePipeline(source, {
+            ...config,
+            emitEncodedSamples: !comparison,
+            presentationFeedback: true,
+          })
         : undefined;
       const stream = pipeline ?? createStream(source, config);
       decodeStream = stream;
@@ -158,12 +198,21 @@ export default function DemoComponent() {
       const updateCounts = () => {
         if (session !== runId) return;
         const stats = renderer?.statistics;
-        setSampleCounts((comparison ? `首帧等待：${firstFrameMs === undefined ? '等待中' : Math.round(firstFrameMs) + ' ms'}；` :
-          `视频编码帧数：${counts.video}；音频编码帧数：${counts.audio}；PCM 数据块：${counts.pcm}；`) +
-          `接收视频帧：${counts.decoded}；渲染帧：${counts.rendered}` +
-          (stats ? `；显示 FPS：${stats.renderFps}；待显示：${stats.queuedFrames} 帧 / ${Math.round(stats.bufferedAheadMs)} ms；显示丢帧：${stats.droppedFrames}；缓冲状态：${stats.state}；重新缓冲：${stats.rebufferCount}` +
-            (source.isLive ? `；播放倍率：${stats.playbackRate.toFixed(3)}；接收边缘落后：${stats.liveLatencyMs === null ? '-' : Math.round(stats.liveLatencyMs)} ms；时钟前移次数：${stats.fastCatchUps}` : '') : '') +
-          (bufferStats ? `；待解码：${bufferStats.encodedFrames} 帧 / ${Math.round(bufferStats.encodedBufferedMs)} ms；解码待输出：${bufferStats.pendingDecodeFrames}；解码后追帧丢弃：${bufferStats.decodeDiscardedFrames}；编码跳过：${bufferStats.encodedSkippedFrames}；解码重启：${bufferStats.keyframeJumps}${bufferStats.waitingForKeyframe ? "（等待 IDR）" : ""}；传输丢帧：${bufferStats.transportDroppedFrames}` : ''));
+        setSampleCounts(
+          (comparison
+            ? `首帧等待：${firstFrameMs === undefined ? "等待中" : Math.round(firstFrameMs) + " ms"}；`
+            : `视频编码帧数：${counts.video}；音频编码帧数：${counts.audio}；PCM 数据块：${counts.pcm}；`) +
+            `接收视频帧：${counts.decoded}；渲染帧：${counts.rendered}` +
+            (stats
+              ? `；显示 FPS：${stats.renderFps}；待显示：${stats.queuedFrames} 帧 / ${Math.round(stats.bufferedAheadMs)} ms；显示丢帧：${stats.droppedFrames}；缓冲状态：${stats.state}；重新缓冲：${stats.rebufferCount}` +
+                (source.isLive
+                  ? `；播放倍率：${stats.playbackRate.toFixed(3)}；接收边缘落后：${stats.liveLatencyMs === null ? "-" : Math.round(stats.liveLatencyMs)} ms；时钟前移次数：${stats.fastCatchUps}`
+                  : "")
+              : "") +
+            (bufferStats
+              ? `；待解码：${bufferStats.encodedFrames} 帧 / ${Math.round(bufferStats.encodedBufferedMs)} ms；解码待输出：${bufferStats.pendingDecodeFrames}；解码后追帧丢弃：${bufferStats.decodeDiscardedFrames}；编码跳过：${bufferStats.encodedSkippedFrames}；解码重启：${bufferStats.keyframeJumps}${bufferStats.waitingForKeyframe ? "（等待 IDR）" : ""}；传输丢帧：${bufferStats.transportDroppedFrames}`
+              : ""),
+        );
       };
       setShowSamples(true);
       updateCounts();
@@ -171,10 +220,10 @@ export default function DemoComponent() {
 
       if (pipeline) {
         setStatus("正在初始化视频渲染器…");
-        const videoRenderer = renderer = new WebCodecsVideoRenderer(root!, {
+        const videoRenderer = (renderer = new WebCodecsVideoRenderer(root!, {
           backend: renderSelect!.value as VideoRenderBackend,
           live: source.isLive,
-          onPresentationState: state => {
+          onPresentationState: (state) => {
             if (session === runId) pipeline.updatePresentationState(state);
           },
           onRendered: () => {
@@ -185,31 +234,37 @@ export default function DemoComponent() {
           onBackendChanged: (backend, reason) => {
             if (session !== runId) return;
             setShowRenderStatus(true);
-            setRenderStatus(`实际渲染：${backend === 'webgl' ? 'WebGL' : 'WebGPU'}${reason ? `；WebGPU 不可用，已回退 WebGL：${reason}` : ''}`);
+            setRenderStatus(
+              `实际渲染：${backend === "webgl" ? "WebGL" : "WebGPU"}${reason ? `；WebGPU 不可用，已回退 WebGL：${reason}` : ""}`,
+            );
           },
-          onError: error => {
+          onError: (error) => {
             if (session !== runId) return;
             stream.stop();
             videoRenderer.destroy();
             setStatus(`视频渲染失败：${error.message}`);
             console.error("[DecodeStream][render-error]", error);
           },
-        });
+        }));
         await videoRenderer.ready;
         if (session !== runId) return;
-        pipeline.on(DecodePipelineEvents.VIDEO_FRAME, frame => {
+        pipeline.on(DecodePipelineEvents.VIDEO_FRAME, (frame) => {
           counts.decoded++;
           videoRenderer.render(frame);
           updateCounts();
         });
         pipeline.on(DecodePipelineEvents.DECODE_COMPLETE, () => {
           videoRenderer.finish();
-          console.log("[DecodeStream][decode-complete]", {...counts});
+          console.log("[DecodeStream][decode-complete]", { ...counts });
           setStatus("视频解码完成（音频暂未播放）。");
         });
-        pipeline.on(DecodePipelineEvents.VIDEO_RESET, () => videoRenderer.reset());
-        pipeline.on(DecodePipelineEvents.VIDEO_LIVE_EDGE, ({pts}) => videoRenderer.updateLiveEdge(pts));
-        pipeline.on(DecodePipelineEvents.VIDEO_BUFFER_STATS, stats => {
+        pipeline.on(DecodePipelineEvents.VIDEO_RESET, () =>
+          videoRenderer.reset(),
+        );
+        pipeline.on(DecodePipelineEvents.VIDEO_LIVE_EDGE, ({ pts }) =>
+          videoRenderer.updateLiveEdge(pts),
+        );
+        pipeline.on(DecodePipelineEvents.VIDEO_BUFFER_STATS, (stats) => {
           bufferStats = stats;
           updateCounts();
         });
@@ -246,11 +301,17 @@ export default function DemoComponent() {
       });
       stream.on(DecodeStreamEvents.LOADING_COMPLETE, () => {
         console.log("[DecodeStream][complete]", { ...counts });
-        setStatus(decodeVideo ? "编码流读取完成，正在等待视频解码结束。" :
-          "编码流读取完成；请在控制台筛选 [DecodeStream] 查看数据。");
+        setStatus(
+          decodeVideo
+            ? "编码流读取完成，正在等待视频解码结束。"
+            : "编码流读取完成；请在控制台筛选 [DecodeStream] 查看数据。",
+        );
       });
-      setStatus(decodeVideo ? "Worker 视频解码已启动（音频暂未播放）。" :
-        "编码流调试已启动；请在控制台筛选 [DecodeStream] 查看数据。");
+      setStatus(
+        decodeVideo
+          ? "Worker 视频解码已启动（音频暂未播放）。"
+          : "编码流调试已启动；请在控制台筛选 [DecodeStream] 查看数据。",
+      );
       playbackStartedAt = performance.now();
       stream.start();
       if (mseLatency !== undefined) startMseComparison(url, mseLatency);
@@ -264,12 +325,17 @@ export default function DemoComponent() {
       }
 
       let mseLatency: number;
-      try { mseLatency = webcodecInput.checked ? 1.5 : readMseLatency(); }
-      catch (error) { setStatus(`配置无效：${(error as Error).message}`); return; }
+      try {
+        mseLatency = webcodecInput.checked ? 1.5 : readMseLatency();
+      } catch (error) {
+        setStatus(`配置无效：${(error as Error).message}`);
+        return;
+      }
       destroyCurrent();
       setShowSamples(false);
       setSampleCounts("");
       if (webcodecInput.checked) {
+        setSessionMode(decodeVideoInput.checked ? "WebCodecs" : "样本调试");
         const session = runId;
         try {
           await startDecodeStream(url, session);
@@ -277,11 +343,14 @@ export default function DemoComponent() {
           if (session !== runId) return;
           destroyCurrent();
           console.error("[DecodeStream][error]", error);
-          setStatus(`编码流调试失败：${error instanceof Error ? error.message : String(error)}`);
+          setStatus(
+            `编码流调试失败：${error instanceof Error ? error.message : String(error)}`,
+          );
         }
         return;
       }
 
+      setSessionMode("MSE");
       configureMse(mseLatency);
       player = createPlayerServiceInstance({
         url,
@@ -295,12 +364,20 @@ export default function DemoComponent() {
 
     actions.current.compare = async () => {
       const url = urlInput.value.trim();
-      if (!url) { setStatus("请先输入一个 FLV URL。"); return; }
+      if (!url) {
+        setStatus("请先输入一个 FLV URL。");
+        return;
+      }
       let mseLatency: number;
-      try { mseLatency = readMseLatency(); }
-      catch (error) { setStatus(`配置无效：${(error as Error).message}`); return; }
+      try {
+        mseLatency = readMseLatency();
+      } catch (error) {
+        setStatus(`配置无效：${(error as Error).message}`);
+        return;
+      }
       destroyCurrent();
       setComparing(true);
+      setSessionMode("双路对比");
       setShowSamples(true);
       setMseCounts("等待 MSE 启动…");
       const session = runId;
@@ -309,7 +386,9 @@ export default function DemoComponent() {
       } catch (error) {
         if (session !== runId) return;
         destroyCurrent();
-        setStatus(`双路对比启动失败：${error instanceof Error ? error.message : String(error)}`);
+        setStatus(
+          `双路对比启动失败：${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     };
 
@@ -326,56 +405,258 @@ export default function DemoComponent() {
     };
   }, []);
 
+  const metric = (name: string) =>
+    sampleCounts
+      .split("；")
+      .find((item) => item.startsWith(`${name}：`))
+      ?.slice(name.length + 1) || "—";
+  const failed = /失败|无效/.test(status);
+
   return (
-    <>
-      <label>
-        FLV URL
-        <input id="stream-url" ref={urlRef} onInput={() => actions.current.inputUrl?.()} size={72} placeholder="https://example.com/live.flv" />
-      </label>
-      <label>
-        本地样本
-        <select id="sample-stream" ref={sampleRef} onChange={() => actions.current.selectSample?.()}>
-          <option value="">自定义地址</option>
-          <option value="av">H.264 + AAC</option>
-          <option value="hevc">H.265（仅视频）</option>
-          <option value="pcm">H.264 + G.711 / PCM</option>
-          <option value="live">本机直播（localhost:8080）</option>
-        </select>
-      </label>
-      <p>
-        <label><input id="webcodec" ref={webcodecRef} onChange={event => setWebcodec(event.target.checked)} type="checkbox" checked={webcodec} /> WebCodecs 独立链路</label>
-        <label><input id="decode-video" ref={decodeVideoRef} onChange={event => setDecodeVideo(event.target.checked)} type="checkbox" checked={decodeVideo} disabled={!webcodec} /> 解码并显示视频（取消后仅调试样本）</label>
-        <label>视频渲染
-          <select id="render-backend" ref={renderRef} disabled={!webcodec || !decodeVideo}>
-            <option value="webgl">WebGL（默认）</option>
-            <option value="webgpu">WebGPU（不可用时回退 WebGL）</option>
-          </select>
-        </label>
-        <span>默认使用原播放器；勾选 WebCodecs 后默认解码显示视频，暂不播放音频。切换后点击创建生效。</span>
-      </p>
-      <fieldset>
-        <legend>MSE 直播延迟调试（修改后重新创建生效）</legend>
-        <p><label>MSE 追帧触发阈值（秒） <input id="mse-max-latency" ref={latencyRef} type="number" min="0.51" step="any" defaultValue="1.5" /></label>
-          追帧后保留 0.5 秒，因此触发阈值必须大于 0.5 秒；越接近，越容易频繁跳转。</p>
-      </fieldset>
-      <button id="create-player" onClick={() => actions.current.create?.()} type="button">创建播放器</button>
-      <button id="compare-players" onClick={() => actions.current.compare?.()} type="button">双路对比 MSE / WebCodecs</button>
-      <button id="destroy-player" onClick={() => actions.current.destroy?.()} type="button">销毁播放器</button>
-      <p id="status">{status}</p>
-      <p id="comparison-note" hidden={!comparing}>同一 URL，独立拉流，同时启动；MSE 静音，WebCodecs 暂不播放音频。缓冲余量和接收边缘落后不是端到端延迟，两路 currentTime / PTS 也不能直接相减。请对照画面内时间码或相同动作判断相对延迟；并排播放会增加机器负载。</p>
-      <div style={{display: "flex", flexWrap: "wrap", gap: 20, alignItems: "flex-start"}}>
-        <section id="comparison-panel" hidden={!comparing} style={{width: 640, maxWidth: "100%"}}>
-          <h2>MSE · 音视频独立</h2>
-          <div id="comparison-root" ref={comparisonRootRef} style={{width: "100%", height: 360, position: "relative"}}></div>
-          <p id="mse-counts">{mseCounts}</p>
+    <div className={styles.workspace}>
+      <aside className={styles.sidebar} aria-label="测试配置">
+        <div className={styles.controlGroup}>
+          <h2>输入源</h2>
+          <label className={styles.field}>
+            FLV URL
+            <input
+              id="stream-url"
+              ref={urlRef}
+              onInput={() => actions.current.inputUrl?.()}
+              placeholder="https://example.com/live.flv"
+              spellCheck={false}
+            />
+          </label>
+          <label className={styles.field}>
+            本地样本
+            <select
+              id="sample-stream"
+              ref={sampleRef}
+              onChange={() => actions.current.selectSample?.()}
+            >
+              <option value="">自定义地址</option>
+              <option value="av">H.264 + AAC</option>
+              <option value="hevc">H.265（仅视频）</option>
+              <option value="pcm">H.264 + G.711 / PCM</option>
+              <option value="live">本机直播（localhost:8080）</option>
+            </select>
+          </label>
+          <p className={styles.hint}>
+            页面加载不会连接流。选择输入源后，手动启动测试。
+          </p>
+        </div>
+        <div className={styles.controlGroup}>
+          <h2>解码与渲染</h2>
+          <label className={styles.checkField}>
+            <input
+              id="webcodec"
+              ref={webcodecRef}
+              onChange={(event) => setWebcodec(event.target.checked)}
+              type="checkbox"
+              checked={webcodec}
+            />
+            <span>
+              WebCodecs 独立链路<small>Worker 视频解码 · 暂不播放音频</small>
+            </span>
+          </label>
+          <label className={styles.checkField}>
+            <input
+              id="decode-video"
+              ref={decodeVideoRef}
+              onChange={(event) => setDecodeVideo(event.target.checked)}
+              type="checkbox"
+              checked={decodeVideo}
+              disabled={!webcodec}
+            />
+            <span>
+              解码并显示视频<small>取消后仅调试编码与 PCM 样本</small>
+            </span>
+          </label>
+          <label className={styles.field}>
+            视频渲染后端
+            <select
+              id="render-backend"
+              ref={renderRef}
+              disabled={!webcodec || !decodeVideo}
+            >
+              <option value="webgl">WebGL（默认）</option>
+              <option value="webgpu">WebGPU（不可用时回退 WebGL）</option>
+            </select>
+          </label>
+          <p className={styles.hint}>
+            默认使用原 MSE 播放器。修改配置后，点击创建播放器生效。
+          </p>
+        </div>
+        <fieldset className={styles.controlGroup}>
+          <legend>MSE 直播延迟</legend>
+          <label className={styles.field}>
+            追帧触发阈值 / 秒
+            <input
+              id="mse-max-latency"
+              ref={latencyRef}
+              type="number"
+              min="0.51"
+              step="any"
+              defaultValue="1.5"
+            />
+          </label>
+          <p className={styles.hint}>
+            追帧后保留 0.5 秒缓冲，阈值必须大于 0.5
+            秒。越接近，越容易频繁跳转；重新创建后生效。
+          </p>
+        </fieldset>
+      </aside>
+
+      <div className={styles.mainPanel}>
+        <section className={styles.toolbar} aria-label="测试操作">
+          <div>
+            <span className={styles.eyebrow}>TEST SESSION</span>
+            <h2>播放检测工作台</h2>
+          </div>
+          <div className={styles.actions}>
+            <button
+              id="create-player"
+              className={styles.primaryButton}
+              onClick={() => actions.current.create?.()}
+              type="button"
+            >
+              <span aria-hidden="true">▶</span> 创建播放器
+            </button>
+            <button
+              id="compare-players"
+              onClick={() => actions.current.compare?.()}
+              type="button"
+            >
+              双路对比 MSE / WebCodecs
+            </button>
+            <button
+              id="destroy-player"
+              className={styles.dangerButton}
+              onClick={() => actions.current.destroy?.()}
+              type="button"
+            >
+              销毁播放器
+            </button>
+          </div>
         </section>
-        <section style={{width: 640, maxWidth: "100%"}}>
-          <h2 id="preview-title" hidden={!comparing}>WebCodecs · Worker 解码</h2>
-          <div id="player-root" ref={playerRootRef} style={{width: "100%", height: 360, position: "relative"}}></div>
-          <p id="render-status" hidden={!showRenderStatus}>{renderStatus}</p>
-          <p id="sample-counts" hidden={!showSamples}>{sampleCounts}</p>
+        <div className={styles.statusBar} data-error={failed || undefined}>
+          <span className={styles.sessionBadge}>{sessionMode}</span>
+          <p id="status" role="status">
+            {status || "准备就绪，等待启动测试。"}
+          </p>
+        </div>
+
+        <section className={styles.overview} aria-label="WebCodecs 关键指标">
+          {[
+            ["显示帧率", metric("显示 FPS"), "FPS"],
+            ["接收边缘落后", metric("接收边缘落后"), "非端到端延迟"],
+            ["显示丢帧", metric("显示丢帧"), "累计帧数"],
+            ["缓冲状态", metric("缓冲状态"), "WebCodecs"],
+          ].map(([label, value, unit]) => (
+            <div className={styles.metricCard} key={label}>
+              <span>{label}</span>
+              <strong>{showSamples ? value : "—"}</strong>
+              <small>{unit}</small>
+            </div>
+          ))}
+        </section>
+
+        <div
+          className={`${styles.previews} ${comparing ? styles.comparing : ""}`}
+        >
+          <section
+            id="comparison-panel"
+            hidden={!comparing}
+            className={styles.previewPanel}
+          >
+            <header className={styles.previewHeader}>
+              <h2>
+                MSE <span>音视频独立</span>
+              </h2>
+              <span className={styles.tag}>A / MUTED</span>
+            </header>
+            <div
+              id="comparison-root"
+              ref={comparisonRootRef}
+              className={styles.playerRoot}
+            />
+            <div className={styles.previewFooter}>独立拉流 · 音频静音</div>
+            <div id="mse-counts" className={styles.statistics}>
+              {mseCounts
+                .split("；")
+                .filter(Boolean)
+                .map((item, index) => (
+                  <div key={index}>{item}</div>
+                ))}
+            </div>
+          </section>
+          <section className={styles.previewPanel}>
+            <header className={styles.previewHeader}>
+              <h2 id="preview-title" hidden={!comparing}>
+                WebCodecs <span>Worker 解码</span>
+              </h2>
+              {!comparing && (
+                <h2>
+                  视频监看{" "}
+                  <span>
+                    {sessionMode === "待机" ? "等待输入" : sessionMode}
+                  </span>
+                </h2>
+              )}
+              <span className={styles.tag}>
+                {comparing ? "B / VIDEO" : "PREVIEW"}
+              </span>
+            </header>
+            <div
+              id="player-root"
+              ref={playerRootRef}
+              className={styles.playerRoot}
+            />
+            <div className={styles.previewFooter}>
+              <span id="render-status" hidden={!showRenderStatus}>
+                {renderStatus}
+              </span>
+              {!showRenderStatus && (
+                <span>创建播放器后显示画面 · 支持 FLV 输入</span>
+              )}
+            </div>
+          </section>
+        </div>
+        <p id="comparison-note" hidden={!comparing} className={styles.notice}>
+          同一 URL，独立拉流，同时启动；MSE 静音，WebCodecs
+          暂不播放音频。缓冲余量和接收边缘落后不是端到端延迟，两路 currentTime /
+          PTS
+          也不能直接相减。请对照画面内时间码或相同动作判断相对延迟；并排播放会增加机器负载。
+        </p>
+
+        <section className={styles.telemetry}>
+          <header className={styles.panelHeading}>
+            <div>
+              <span className={styles.eyebrow}>TELEMETRY</span>
+              <h2>解码与渲染指标</h2>
+            </div>
+            <span className={styles.tag}>WEBCODECS</span>
+          </header>
+          {!showSamples && (
+            <p className={styles.emptyMetrics}>
+              启动 WebCodecs 或双路对比后显示指标。纯样本调试可在控制台筛选{" "}
+              <code>[DecodeStream]</code> 查看数据。
+            </p>
+          )}
+          <div
+            id="sample-counts"
+            hidden={!showSamples}
+            className={styles.statistics}
+          >
+            {sampleCounts
+              .split("；")
+              .filter(Boolean)
+              .map((item, index) => (
+                <div key={index}>{item}</div>
+              ))}
+          </div>
         </section>
       </div>
-    </>
+    </div>
   );
 }
