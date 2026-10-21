@@ -194,8 +194,9 @@ export default class VideoDecodeScheduler {
         if (this.live && next?.kind === 'sample' && next.sample.pts < this.discardBefore) return true;
         if (pressure.retainedFrames === 0) return true;
         // Shared output budget; leave a reserve for asynchronous codec output.
+        // Live playback needs enough decoded runway to span HTTP delivery batches.
         return pressure.retainedFrames + this.outstanding < 12 &&
-            (pressure.bufferedAheadMs < 150 || pressure.retainedFrames < 3);
+            (pressure.bufferedAheadMs < (this.live ? 400 : 150) || pressure.retainedFrames < 3);
     }
 
     private async pump(): Promise<void> {
