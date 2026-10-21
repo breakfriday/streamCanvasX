@@ -62,7 +62,6 @@ class CanvasVideoService {
     }
     set loading(value: boolean) {
        if (value === false) {
-        debugger;
         this.loadingView.unload();
        } else {
 
@@ -85,6 +84,7 @@ class CanvasVideoService {
     }
 
     destroy() {
+        this.loadingView.destroy();
         this.mediaView.destroy();
         this.playerService.audioProcessingService.destroy();
         // if (this.playerService.config.showAudio === true) {

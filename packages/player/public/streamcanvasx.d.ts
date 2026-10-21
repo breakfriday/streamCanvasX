@@ -66,6 +66,7 @@ export interface PlayerService {
   on(name: 'webcodecsStatus', listener: (message: string) => void): this;
   on(name: 'webcodecsRender', listener: (data: {backend: 'webgl' | 'webgpu'; reason?: string}) => void): this;
   on(name: 'webcodecsError', listener: (error: Error) => void): this;
+  on(name: 'webcodecsReconnect', listener: (data: {attempt: number; delayMs: number; reason: string}) => void): this;
   on(name: 'webcodecsStarted', listener: () => void): this;
   on(name: 'webcodecsComplete', listener: (statistics: WebCodecsStatistics) => void): this;
   on(name: string, listener: (...args: any[]) => void): this;

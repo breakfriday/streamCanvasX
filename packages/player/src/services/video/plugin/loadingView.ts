@@ -6,6 +6,8 @@ class LoadingView {
     canvas_context: CanvasRenderingContext2D;
     zIndex: string;
     resizeObserver: ResizeObserver;
+    private animationTimer?: ReturnType<typeof setTimeout>;
+    private resizeTimer?: ReturnType<typeof setTimeout>;
     constructor() {
 
     }
@@ -17,6 +19,7 @@ class LoadingView {
         this.isLoading= value;
       }
     load() {
+        if (this.isLoading) return;
         this.isLoading=true;
         let { contentEl } = this.playerService.config;
         let canvas_el=document.createElement("canvas");
@@ -48,8 +51,9 @@ class LoadingView {
       let { contentEl } = this.playerService.config;
                   // 监听 dom size 变化， 调整canvas 大小
     this.resizeObserver = new ResizeObserver(() => {
-      setTimeout(() => {
-         this.setCanvasSize();
+      clearTimeout(this.resizeTimer);
+      this.resizeTimer = setTimeout(() => {
+         if (this.isLoading) this.setCanvasSize();
         //  this.resizeControlPannel();
       }, 20);
     });
@@ -71,11 +75,9 @@ class LoadingView {
         this.canvas_el.style.backgroundColor= 'rgba(0, 0, 0, 0.05)';
     }
     drawLoading() {
-          let { isLoading } = this;
           let ctx = this.canvas_context;
           let { canvas_el } = this;
           let canvas = canvas_el;
-          let timeId: any = null;
 
           // Define the circle radius and line width
           const radius = 50;
@@ -90,8 +92,7 @@ class LoadingView {
             // Define the center coordinates of the circle
             const centerX = canvas.width / 2;
             const centerY = canvas.height / 2;
-            if (isLoading=== false) {
-              clearTimeout(timeId);
+            if (!this.isLoading || this.canvas_el !== canvas) {
               return false;
             }
 
@@ -126,15 +127,20 @@ class LoadingView {
             }
 
             // Use the setTimeout function to recursively call drawLoading() to achieve animation effect
-            timeId = setTimeout(drawAnimation, 1000 / 30); // Approximate 60 FPS
+            this.animationTimer = setTimeout(drawAnimation, 1000 / 30); // Approximate 60 FPS
           };
 
           drawAnimation();
     }
 
     unload() {
+      this.isLoading = false;
+      clearTimeout(this.animationTimer);
+      clearTimeout(this.resizeTimer);
+      this.animationTimer = undefined;
+      this.resizeTimer = undefined;
+      this.resizeObserver?.disconnect();
       if(this.canvas_el) {
-        this.isLoading=false;
         this.canvas_el.remove();
         this.canvas_context=null;
         this.canvas_el=null;

@@ -160,6 +160,11 @@ class MediaView {
           }
           // this.showError=true;
           this.render(this.video);
+          // Reload reuses the media element and does not repeat initial metadata setup.
+          // A newly presented frame is the recovery signal, not a successful connection.
+          if (this.playerService.meidiaEl === this.video && this.playerService.canvasVideoService.loadingView.isLoading) {
+            this.playerService.canvasVideoService.loading = false;
+          }
           this.nowFrameCount++;
           try {
             updatePerformanceInfo(now);

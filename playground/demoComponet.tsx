@@ -228,8 +228,13 @@ export default function DemoComponent() {
           setStatus(`编码流调试失败：${error.message}`);
           console.error("[DecodeStream][error]", error);
         });
+        current.on("webcodecsReconnect", () => {
+          if (session === runId) setSessionMode("重连中");
+        });
         current.on("webcodecsStarted", () => {
-          if (session !== runId || mseLatency === undefined) return;
+          if (session !== runId) return;
+          setSessionMode(comparison ? "双路对比" : "WebCodecs");
+          if (mseLatency === undefined || player) return;
           try {
             startMseComparison(url, mseLatency);
           } catch (error) {
