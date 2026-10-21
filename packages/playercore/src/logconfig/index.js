@@ -1,3 +1,4 @@
 export default {
-    logDebug:false
-}
+  logDebug: true,
+};
+

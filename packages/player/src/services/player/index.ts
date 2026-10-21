@@ -1,5 +1,6 @@
 import { injectable, inject, Container, LazyServiceIdentifer } from 'inversify';
 import Emitter from '../../utils/emitter';
+import WebCodecsPlayback from './webcodecs-playback';
 
 import { TYPES } from '../../serviceFactories/symbol';
 import HttpFlvStreamService from '../stream/fetch_stream_loader';
@@ -63,6 +64,10 @@ type Stats = {
 
 @injectable()
 class PlayerService extends Emitter {
+    private webcodecsPlayback?: WebCodecsPlayback;
+
+    get webcodecsStatistics() { return this.webcodecsPlayback?.statistics; }
+
     httpFlvStreamService: HttpFlvStreamService;
     flvVDemuxService: FlvDemuxService;
     webcodecsDecoderService: WebcodecsDecoderService;
@@ -191,6 +196,8 @@ class PlayerService extends Emitter {
 
 
         this.config = this.correctConfig(config);
+        // The independent Worker pipeline must not initialize legacy MSE/canvas services.
+        if (this.config.webcodecs === true) return;
 
         let { model, url, contentEl, useOffScreen, fileData } = this.config;
 
@@ -286,6 +293,15 @@ class PlayerService extends Emitter {
         // return false;
     }
     createPlayer(parms: { type?: string; isLive?: boolean; url?: string }) {
+        if (this.config.webcodecs === true) {
+            this.webcodecsPlayback?.destroy();
+            const session = new WebCodecsPlayback({...this.config,
+                url: parms.url ?? this.config.url, isLive: parms.isLive ?? this.config.isLive},
+                (event, data) => { if (this.webcodecsPlayback === session) this.emit(event, data); });
+            this.webcodecsPlayback = session;
+            session.start();
+            return;
+        }
         let { streamType, url } = this.config;
 
         // this.logMonitor.log({ flvUrl: url ,status: "start",statusDesc: "創建实例 手动拉流" });
@@ -909,6 +925,12 @@ class PlayerService extends Emitter {
     }
 
     destroy() {
+        if (this.config.webcodecs === true) {
+            const session = this.webcodecsPlayback;
+            this.webcodecsPlayback = undefined;
+            session?.destroy();
+            return;
+        }
         this.stopAudioEvent();
         this.lastPCMSubmittedAt = undefined;
         console.log('----destroy-----1-----');
@@ -961,6 +983,7 @@ class PlayerService extends Emitter {
 
 
     play(url: string) {
+        if (this.config.webcodecs === true) { this.createPlayer({url}); return; }
         this.httpFlvStreamService.fetchStream(url);
     }
 

@@ -4,15 +4,8 @@ import { createPlayerServiceInstance } from "@break_happy/streamcanvasx";
 import {
   createStream,
   DecodeStreamEvents,
-  createDecodePipeline,
-  DecodePipelineEvents,
 } from "@break_happy/streamcanvasx-core";
-import WebCodecsVideoRenderer from "../packages/player/src/services/renderingEngines/webcodecs-video-renderer";
-import type { VideoRenderBackend } from "../packages/player/src/services/renderingEngines/webcodecs-renderer-types";
 import type Mpegts from "@break_happy/streamcanvasx-core";
-import avURL from "../packages/playercore/tests/fixtures/av.flv?url";
-import hevcURL from "../packages/playercore/tests/fixtures/hevc.flv?url";
-import pcmURL from "../tests/av-pcm.flv?url";
 
 export default function DemoComponent() {
   const playerRootRef = useRef<HTMLDivElement>(null);
@@ -52,7 +45,9 @@ export default function DemoComponent() {
     const renderSelect = renderRef.current!;
     let player: ReturnType<typeof createPlayerServiceInstance> | undefined;
     let decodeStream: Mpegts.DecodeStream | undefined;
-    let renderer: WebCodecsVideoRenderer | undefined;
+    let webcodecsPlayer:
+      | ReturnType<typeof createPlayerServiceInstance>
+      | undefined;
     let runId = 0;
     const cleanups: Array<() => void> = [];
 
@@ -94,21 +89,13 @@ export default function DemoComponent() {
       cleanups.push(() => cancelAnimationFrame(animation));
     }
 
-    function isLocalSample(url: string): boolean {
-      return [avURL, hevcURL, pcmURL].some(
-        (sample) =>
-          new URL(sample, document.baseURI).href ===
-          new URL(url, document.baseURI).href,
-      );
-    }
-
     function startMseComparison(url: string, maxLatency: number): void {
       configureMse(maxLatency);
       const current = (player = createPlayerServiceInstance({
         url,
         contentEl: comparisonRoot,
         streamType: "flv",
-        isLive: !isLocalSample(url),
+        isLive: true,
         hasAudio: true,
         hasVideo: true,
         isMuted: true,
@@ -143,9 +130,6 @@ export default function DemoComponent() {
     }
 
     const samples: Record<string, string> = {
-      av: avURL,
-      hevc: hevcURL,
-      pcm: pcmURL,
       live: "http://localhost:8080/live/livestream.flv",
     };
     actions.current.selectSample = () => {
@@ -161,8 +145,8 @@ export default function DemoComponent() {
       for (const cleanup of cleanups.splice(0)) cleanup();
       decodeStream?.destroy();
       decodeStream = undefined;
-      renderer?.destroy();
-      renderer = undefined;
+      webcodecsPlayer?.destroy();
+      webcodecsPlayer = undefined;
       player?.destroy();
       player = undefined;
       root!.replaceChildren();
@@ -178,26 +162,21 @@ export default function DemoComponent() {
       mseLatency?: number,
     ): Promise<void> {
       const comparison = mseLatency !== undefined;
-      const localSample = isLocalSample(url);
-      const source = { type: "flv", url, isLive: !localSample };
+      const source = { type: "flv", url, isLive: true };
       const config = { webcodec: true as const, enableStashBuffer: false };
       const decodeVideo = comparison || decodeVideoInput!.checked;
-      const pipeline = decodeVideo
-        ? createDecodePipeline(source, {
-            ...config,
-            emitEncodedSamples: !comparison,
-            presentationFeedback: true,
-          })
-        : undefined;
-      const stream = pipeline ?? createStream(source, config);
-      decodeStream = stream;
       const counts = { video: 0, audio: 0, pcm: 0, decoded: 0, rendered: 0 };
       let bufferStats: Mpegts.VideoBufferStatistics | undefined;
-      let playbackStartedAt = 0;
       let firstFrameMs: number | undefined;
       const updateCounts = () => {
         if (session !== runId) return;
-        const stats = renderer?.statistics;
+        const snapshot = webcodecsPlayer?.webcodecsStatistics;
+        if (snapshot) {
+          Object.assign(counts, snapshot.counts);
+          firstFrameMs = snapshot.firstFrameMs;
+          bufferStats = snapshot.buffer;
+        }
+        const stats = snapshot?.rendering;
         setSampleCounts(
           (comparison
             ? `首帧等待：${firstFrameMs === undefined ? "等待中" : Math.round(firstFrameMs) + " ms"}；`
@@ -218,58 +197,54 @@ export default function DemoComponent() {
       updateCounts();
       watchStatistics(updateCounts);
 
-      if (pipeline) {
-        setStatus("正在初始化视频渲染器…");
-        const videoRenderer = (renderer = new WebCodecsVideoRenderer(root!, {
-          backend: renderSelect!.value as VideoRenderBackend,
-          live: source.isLive,
-          onPresentationState: (state) => {
-            if (session === runId) pipeline.updatePresentationState(state);
-          },
-          onRendered: () => {
-            firstFrameMs ??= performance.now() - playbackStartedAt;
-            counts.rendered++;
-            updateCounts();
-          },
-          onBackendChanged: (backend, reason) => {
+      if (decodeVideo) {
+        const current = (webcodecsPlayer = createPlayerServiceInstance({
+          url,
+          contentEl: root,
+          streamType: "flv",
+          isLive: source.isLive,
+          webcodecs: true,
+          webcodecsDebug: !comparison,
+          videoRenderBackend: renderSelect.value as "webgl" | "webgpu",
+        }));
+        current.on("webcodecsStatus", (message: string) => {
+          if (session !== runId) return;
+          setStatus(message);
+          updateCounts();
+        });
+        current.on(
+          "webcodecsRender",
+          ({ backend, reason }: { backend: string; reason?: string }) => {
             if (session !== runId) return;
             setShowRenderStatus(true);
             setRenderStatus(
               `实际渲染：${backend === "webgl" ? "WebGL" : "WebGPU"}${reason ? `；WebGPU 不可用，已回退 WebGL：${reason}` : ""}`,
             );
           },
-          onError: (error) => {
-            if (session !== runId) return;
-            stream.stop();
-            videoRenderer.destroy();
-            setStatus(`视频渲染失败：${error.message}`);
-            console.error("[DecodeStream][render-error]", error);
-          },
-        }));
-        await videoRenderer.ready;
-        if (session !== runId) return;
-        pipeline.on(DecodePipelineEvents.VIDEO_FRAME, (frame) => {
-          counts.decoded++;
-          videoRenderer.render(frame);
-          updateCounts();
-        });
-        pipeline.on(DecodePipelineEvents.DECODE_COMPLETE, () => {
-          videoRenderer.finish();
-          console.log("[DecodeStream][decode-complete]", { ...counts });
-          setStatus("视频解码完成（音频暂未播放）。");
-        });
-        pipeline.on(DecodePipelineEvents.VIDEO_RESET, () =>
-          videoRenderer.reset(),
         );
-        pipeline.on(DecodePipelineEvents.VIDEO_LIVE_EDGE, ({ pts }) =>
-          videoRenderer.updateLiveEdge(pts),
-        );
-        pipeline.on(DecodePipelineEvents.VIDEO_BUFFER_STATS, (stats) => {
-          bufferStats = stats;
-          updateCounts();
+        current.on("webcodecsError", (error: Error) => {
+          if (session !== runId) return;
+          destroyCurrent();
+          setStatus(`编码流调试失败：${error.message}`);
+          console.error("[DecodeStream][error]", error);
         });
+        current.on("webcodecsStarted", () => {
+          if (session !== runId || mseLatency === undefined) return;
+          try {
+            startMseComparison(url, mseLatency);
+          } catch (error) {
+            destroyCurrent();
+            setStatus(
+              `双路对比启动失败：${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        });
+        current.createPlayer({});
+        return;
       }
 
+      // Encoded-sample inspection is a separate core diagnostic, not player playback.
+      const stream = (decodeStream = createStream(source, config));
       stream.on(DecodeStreamEvents.TRACK_CONFIG, (config) => {
         console.log("[DecodeStream][config]", config);
       });
@@ -312,9 +287,7 @@ export default function DemoComponent() {
           ? "Worker 视频解码已启动（音频暂未播放）。"
           : "编码流调试已启动；请在控制台筛选 [DecodeStream] 查看数据。",
       );
-      playbackStartedAt = performance.now();
       stream.start();
-      if (mseLatency !== undefined) startMseComparison(url, mseLatency);
     }
 
     actions.current.create = async () => {
@@ -428,16 +401,13 @@ export default function DemoComponent() {
             />
           </label>
           <label className={styles.field}>
-            本地样本
+            预设地址
             <select
               id="sample-stream"
               ref={sampleRef}
               onChange={() => actions.current.selectSample?.()}
             >
               <option value="">自定义地址</option>
-              <option value="av">H.264 + AAC</option>
-              <option value="hevc">H.265（仅视频）</option>
-              <option value="pcm">H.264 + G.711 / PCM</option>
               <option value="live">本机直播（localhost:8080）</option>
             </select>
           </label>

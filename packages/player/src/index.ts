@@ -8,6 +8,7 @@ import streamcanvasCore from "@break_happy/streamcanvasx-core"
 export { default as MseDecoder } from './services/decoder/mediaSource';
 export { default as Scheduler } from './services/player/util/scheduler';
 export type { default as PlayerService } from './services/player';
+export type { WebCodecsStatistics } from './services/player/webcodecs-playback';
 export type {
     IBridgePlayerConfig,
     IplayerConfig,

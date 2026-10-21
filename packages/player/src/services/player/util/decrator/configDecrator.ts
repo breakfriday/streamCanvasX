@@ -32,6 +32,7 @@ function CorrectDecorator(target: any, propertyName: string, descriptor: Propert
             streamType: 'flv',
             isLive: true,
             splitAVBuffers: true,
+            webcodecs: false,
             audioPlayback: {
                 method: 'MSE'
             }

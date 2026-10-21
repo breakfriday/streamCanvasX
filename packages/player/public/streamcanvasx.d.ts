@@ -1,5 +1,10 @@
 /** Public API for the browser ESM artifact. Keep this file independent of src/. */
 export interface IplayerConfig {
+  /** Opt in to the video-only Worker WebCodecs pipeline. Defaults to false (MSE). */
+  webcodecs?: boolean;
+  videoRenderBackend?: 'webgl' | 'webgpu';
+  /** Copy encoded samples for diagnostic counters; disabled by default. */
+  webcodecsDebug?: boolean;
   model?: unknown;
   url?: string;
   rtspUrl?: string;
@@ -40,7 +45,31 @@ export interface IBridgePlayerConfig extends IplayerConfig {
   contentEl?: HTMLElement;
 }
 
+export interface WebCodecsStatistics {
+  counts: {video: number; audio: number; pcm: number; decoded: number; rendered: number};
+  firstFrameMs?: number;
+  rendering?: {
+    queuedFrames: number; bufferedMs: number; droppedFrames: number; renderFps: number;
+    bufferedAheadMs: number; state: 'buffering' | 'playing' | 'rebuffering' | 'ended';
+    rebufferCount: number; playbackRate: number; liveLatencyMs: number | null; fastCatchUps: number;
+  };
+  buffer?: {
+    encodedFrames: number; encodedBytes: number; encodedBufferedMs: number; decodeQueueSize: number;
+    pendingDecodeFrames: number; retainedVideoFrames: number; transportDroppedFrames: number;
+    decodeDiscardedFrames: number; liveEdgePTS: number | null; encodedSkippedFrames: number;
+    keyframeJumps: number; waitingForKeyframe: boolean;
+  };
+}
+
 export interface PlayerService {
+  readonly webcodecsStatistics?: WebCodecsStatistics;
+  on(name: 'webcodecsStatus', listener: (message: string) => void): this;
+  on(name: 'webcodecsRender', listener: (data: {backend: 'webgl' | 'webgpu'; reason?: string}) => void): this;
+  on(name: 'webcodecsError', listener: (error: Error) => void): this;
+  on(name: 'webcodecsStarted', listener: () => void): this;
+  on(name: 'webcodecsComplete', listener: (statistics: WebCodecsStatistics) => void): this;
+  on(name: string, listener: (...args: any[]) => void): this;
+  off(name?: string, listener?: (...args: any[]) => void): this | undefined;
   createPlayer(params: { type?: string; isLive?: boolean; url?: string }): void;
   destroy(): void;
   [key: string]: unknown;

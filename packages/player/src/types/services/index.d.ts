@@ -134,6 +134,11 @@ export interface I_DEFAULT_PLAYER_OPTIONS {
 
 
  interface IplayerConfig{
+  /** Opt in to the video-only Worker WebCodecs pipeline. Defaults to false (MSE). */
+  webcodecs?: boolean;
+  videoRenderBackend?: 'webgl' | 'webgpu';
+  /** Copy encoded samples for diagnostic counters; disabled by default. */
+  webcodecsDebug?: boolean;
   model?: UseMode;
   url?: string;
   rtspUrl?: string;
