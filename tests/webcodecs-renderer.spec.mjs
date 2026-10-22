@@ -108,7 +108,7 @@ for (const failure of ['missing-api', 'no-adapter', 'device-rejected']) {
             };
             Object.defineProperty(navigator, 'gpu', {value: gpu, configurable: true});
         }, failure);
-        await page.locator('#sample-stream').selectOption('av');
+        await page.locator('#stream-url').fill('/packages/playercore/tests/fixtures/av.flv');
         await page.locator('#webcodec').check();
         await page.locator('#render-backend').selectOption('webgpu');
         await page.locator('#create-player').click();

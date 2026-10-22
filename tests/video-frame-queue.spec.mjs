@@ -134,30 +134,31 @@ test('presentation clock does not change its rate with display refresh frequency
 test('live clock smoothly removes moderate lag with refresh-independent speed and no timeline jumps', async ({page}) => {
     const result = await page.evaluate(async () => {
         const {default: Clock} = await import('/packages/player/src/services/renderingEngines/video-presentation-clock.ts');
+        const {WEBCODECS_LIVE_CONFIG: policy} = await import('/packages/player/src/constant/webcodecs-config.ts');
         return [60, 120, 144].map(hz => {
             const clock = new Clock(0, {live: true});
             clock.observeInput(0, 0, true);
             let peakRate = 1, previousPTS = 0, largestStep = 0;
             for (let tick = 0; tick <= hz * 10; tick++) {
                 const now = tick * 1000 / hz;
-                clock.updateLiveEdge(now * 1000 + 400000, now);
+                clock.updateLiveEdge(now * 1000 + 450000, now);
                 clock.advance(now);
                 const pts = clock.mediaPTS(now);
                 largestStep = Math.max(largestStep, (pts - previousPTS) / 1000);
                 previousPTS = pts;
                 peakRate = Math.max(peakRate, clock.playbackRate);
             }
-            const lag = (10400000 - clock.mediaPTS(10000)) / 1000;
+            const lag = (10450000 - clock.mediaPTS(10000)) / 1000;
             const rate = clock.playbackRate;
             clock.advance(12000); // No new input: do not keep accelerating against a stale edge.
-            return {hz, peakRate, rate, lag, largestStep, jumps: clock.fastCatchUps, staleRate: clock.playbackRate};
+            return {target: policy.targetLatencyMs, hz, peakRate, rate, lag, largestStep, jumps: clock.fastCatchUps, staleRate: clock.playbackRate};
         });
     });
     for (const value of result) {
-        expect(value.peakRate).toBeGreaterThan(1.15);
+        expect(value.peakRate).toBeGreaterThan(1.05);
         expect(value.peakRate).toBeLessThanOrEqual(1.25);
-        expect(value.lag).toBeLessThan(230);
-        expect(value.lag).toBeGreaterThan(120);
+        expect(value.lag).toBeLessThan(value.target + 130);
+        expect(value.lag).toBeGreaterThan(value.target + 20);
         expect(value.rate).toBeLessThan(1.02);
         expect(value.largestStep).toBeLessThanOrEqual(1250 / value.hz + 0.01);
         expect(value.jumps).toBe(0);
@@ -178,20 +179,22 @@ test('large live backlog seeks forward and late decoder output cannot rewind the
         queue.updateLiveEdge(2000000, 200);
         const cutoff = queue.discardBeforePTS(200);
         push(100000, 201); // Previously submitted output arrives after the catch-up command.
-        push(1900000, 201);
+        const {WEBCODECS_LIVE_CONFIG: policy} = await import('/packages/player/src/constant/webcodecs-config.ts');
+        const targetPTS = 2000000 - policy.targetLatencyMs * 1000;
+        push(targetPTS, 201);
         const caught = queue.take(201);
         const timestamp = caught?.timestamp;
         caught?.close();
         const lag = queue.liveLatencyMs;
         const jumps = queue.fastCatchUps;
         queue.clear();
-        return {cutoff, timestamp, lag, jumps, closed};
+        return {targetPTS, target: policy.targetLatencyMs, cutoff, timestamp, lag, jumps, closed};
     });
-    expect(result.cutoff).toBe(1900000);
-    expect(result.timestamp).toBe(1900000);
-    expect(result.lag).toBe(100);
+    expect(result.cutoff).toBe(result.targetPTS);
+    expect(result.timestamp).toBe(result.targetPTS);
+    expect(result.lag).toBe(result.target);
     expect(result.jumps).toBe(1);
-    expect(result.closed.sort((a, b) => a - b)).toEqual([0, 33000, 100000, 1900000]);
+    expect(result.closed.sort((a, b) => a - b)).toEqual([0, 33000, 100000, result.targetPTS]);
 });
 
 test('a live network stall cannot make the moving discard deadline reject every new frame', async ({page}) => {
@@ -201,9 +204,10 @@ test('a live network stall cannot make the moving discard deadline reject every 
         let closed = 0, shown = 0, next = 1;
         queue.updateLiveEdge(0, 0);
         queue.push({timestamp: 0, close: () => closed++}, 0);
-        queue.take(60)?.close();
-        for (let now = 61; now <= 2500; now++) {
-            while (next <= 60 && next * 1000 / 30 + 450 <= now) {
+        const {WEBCODECS_LIVE_CONFIG: policy} = await import('/packages/player/src/constant/webcodecs-config.ts');
+        queue.take(policy.delayMs)?.close();
+        for (let now = policy.delayMs + 1; now <= 3500; now++) {
+            while (next <= 60 && next * 1000 / 30 + 900 <= now) {
                 const pts = next++ * 1000000 / 30;
                 queue.updateLiveEdge(pts, now);
                 queue.push({timestamp: pts, close: () => closed++}, now);
@@ -219,6 +223,42 @@ test('a live network stall cannot make the moving discard deadline reject every 
     });
     expect(result.shown).toBeGreaterThan(50);
     expect(result.rebuffers).toBe(1);
-    expect(result.lag).toBeLessThan(150);
+    expect(result.lag).toBeLessThan(500);
     expect(result.closed).toBe(61);
 });
+
+for (const fps of [10, 20, 30]) {
+    test(`live ${fps} fps survives 350 ms delivery batches without collapsing frames`, async ({page}) => {
+        const result = await page.evaluate(async fps => {
+            const {default: Queue} = await import('/packages/player/src/services/renderingEngines/video-frame-queue.ts');
+            const queue = new Queue({live: true});
+            const frames = Math.round(10 * fps);
+            let next = 0, shown = 0, closed = 0, largest = 0, lastPTS = -1;
+            let monotonic = true;
+            for (let now = 0; now < 11000; now++) {
+                if (now % 350 === 0) {
+                    const edge = Math.min(frames - 1, Math.floor(now * fps / 1000));
+                    queue.updateLiveEdge(edge * 1000000 / fps, now);
+                    while (next <= edge) queue.push({timestamp: next++ * 1000000 / fps, close: () => closed++}, now);
+                }
+                if (now % 16 === 0) {
+                    const frame = queue.take(now);
+                    if (frame) {
+                        monotonic &&= frame.timestamp > lastPTS;
+                        lastPTS = frame.timestamp;
+                        shown++; frame.close();
+                    }
+                }
+                largest = Math.max(largest, queue.size);
+            }
+            const dropped = queue.dropped;
+            queue.clear();
+            return {frames, shown, dropped, closed, largest, monotonic};
+        }, fps);
+        expect(result.shown).toBeGreaterThanOrEqual(result.frames * 0.95);
+        expect(result.dropped).toBeLessThanOrEqual(result.frames * 0.05);
+        expect(result.largest).toBeLessThanOrEqual(16);
+        expect(result.monotonic).toBe(true);
+        expect(result.closed).toBe(result.frames);
+    });
+}

@@ -245,3 +245,39 @@ test('optional supplied live stream starts and reloads through independent MSE b
   await page.evaluate(() => upper.destroy());
   expect(await page.evaluate(() => failures)).toEqual([]);
 });
+
+test('live MSE reconnection removes loading only after video resumes and stops its animation', async ({page}) => {
+  await page.evaluate(() => {
+    window.upper = api.createPlayerServiceInstance({
+      url: new URL('/packages/playercore/tests/fixtures/av.flv', location.href).href,
+      contentEl: document.querySelector('#player-root'), isLive: true, isMuted: true,
+    });
+    upper.createPlayer({});
+  });
+  await page.waitForFunction(() => upper.canvasVideoService.mediaView.nowFrameCount > 0);
+  let release;
+  const reconnect = new Promise(resolve => { release = resolve; });
+  await page.route('**/packages/playercore/tests/fixtures/av.flv', async route => {
+    await reconnect;
+    await route.continue();
+  });
+  await page.evaluate(() => {
+    upper.addReloadTask({arr_msg: ['test: upstream disconnected']});
+    window.spinner = upper.canvasVideoService.loadingView.canvas_el;
+    window.spinnerDraws = 0;
+    const ctx = spinner.getContext('2d');
+    const clear = ctx.clearRect.bind(ctx);
+    ctx.clearRect = (...args) => { spinnerDraws++; clear(...args); };
+  });
+  await page.waitForTimeout(150);
+  expect(await page.evaluate(() => ({loading: upper.canvasVideoService.loadingView.isLoading,
+    attached: spinner.isConnected, drew: spinnerDraws > 0}))).toEqual({loading: true, attached: true, drew: true});
+  release();
+  await page.waitForFunction(() => upper.meidiaEl.currentTime > 0 &&
+    !upper.canvasVideoService.loadingView.isLoading && !spinner.isConnected);
+  const draws = await page.evaluate(() => spinnerDraws);
+  await page.waitForTimeout(150);
+  expect(await page.evaluate(() => spinnerDraws)).toBe(draws);
+  await page.evaluate(() => upper.destroy());
+  expect(await page.evaluate(() => failures)).toEqual([]);
+});

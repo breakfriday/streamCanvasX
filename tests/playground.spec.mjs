@@ -1,7 +1,7 @@
 import {test, expect} from '@playwright/test';
 
 test('playground Worker video preview renders while MSE remains unused', async ({page}) => {
-    await page.locator('#sample-stream').selectOption('av');
+    await page.locator('#stream-url').fill('/packages/playercore/tests/fixtures/av.flv');
     await page.locator('#webcodec').check();
     await expect(page.locator('#decode-video')).toBeChecked();
     await expect(page.locator('#render-backend')).toHaveValue('webgl');
@@ -50,7 +50,7 @@ for (const {sample, expected, absent} of [
     test(`playground ${sample} logs separate sample types without creating MSE`, async ({page}) => {
         const messages = [];
         page.on('console', message => messages.push(message.text()));
-        await page.locator('#sample-stream').selectOption(sample);
+        await page.locator('#stream-url').fill(sample === 'pcm' ? '/tests/av-pcm.flv' : `/packages/playercore/tests/fixtures/${sample}.flv`);
         await page.locator('#webcodec').check();
         await page.locator('#decode-video').uncheck();
         await page.locator('#create-player').click();
@@ -73,7 +73,7 @@ for (const {sample, expected, absent} of [
 test('playground defaults to dual MSE and switches to sample debug on explicit request', async ({page}) => {
     await expect(page.locator('#webcodec')).not.toBeChecked();
     expect(await page.evaluate(() => playgroundMediaSources.length)).toBe(0);
-    await page.locator('#sample-stream').selectOption('av');
+    await page.locator('#stream-url').fill('/packages/playercore/tests/fixtures/av.flv');
     await page.locator('#create-player').click();
     await page.waitForFunction(() => playgroundMediaSources.length === 2 &&
         playgroundMediaSources.every(mse => mse.sourceBuffers.length > 0 && mse.sourceBuffers[0].buffered.length > 0));
@@ -102,7 +102,7 @@ test('playground destroys an in-flight debug stream and ignores late responses',
     await page.locator('#destroy-player').click();
     await expect(page.locator('#status')).toContainText('已销毁');
     await delayed.fulfill({body: 'late invalid FLV response'});
-    await page.locator('#sample-stream').selectOption('av');
+    await page.locator('#stream-url').fill('/packages/playercore/tests/fixtures/av.flv');
     await page.locator('#create-player').click();
     await expect(page.locator('#status')).toContainText('编码流读取完成');
     expect(messages.filter(message => message.startsWith('[DecodeStream][complete]'))).toHaveLength(1);
@@ -125,7 +125,7 @@ test('playground reports missing URL and network failures', async ({page}) => {
 });
 
 test('playground compares MSE and WebCodecs together and cleans up both when switching', async ({page}) => {
-    await page.locator('#sample-stream').selectOption('av');
+    await page.locator('#stream-url').fill('/packages/playercore/tests/fixtures/av.flv');
     await page.locator('#mse-max-latency').fill('0.9');
     await page.locator('#compare-players').click();
     await expect(page.locator('#comparison-panel')).toBeVisible();
@@ -164,7 +164,7 @@ test('optional live comparison renders both modes and releases them on destroy',
 
 
 test('playground rejects inconsistent latency settings before starting either player', async ({page}) => {
-    await page.locator('#sample-stream').selectOption('av');
+    await page.locator('#stream-url').fill('/packages/playercore/tests/fixtures/av.flv');
     for (const [id, invalid, restore, message] of [
         ['mse-max-latency', '0.5', '1.5', '必须大于保留缓冲'],
         ['mse-max-latency', '0.4', '1.5', '必须大于保留缓冲'],
